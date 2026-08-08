@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Qlens</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Qlens</h1>
+    <span id="health"></span>
+  </header>
+  <main>
+    <section id="runs">
+      <h2>Circuit runs</h2>
+      <p class="hint">Waiting for runs. Record one with
+        <code>qlens.run(circuit, trace=True)</code> pointed at this source,
+        and it appears here live.</p>
+      <ul id="run-list"></ul>
+    </section>
+    <section id="detail">
+      <h2>Run detail</h2>
+      <p class="hint">Select a run. The designed circuit timeline and state
+        display land here; this page is the functional placeholder that
+        exercises the full API.</p>
+      <pre id="circuit-json"></pre>
+      <pre id="state-json"></pre>
+    </section>
+  </main>
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

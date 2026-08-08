@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qlens"
-version = "0.1.0"
+version = "0.2.0"
 description = "A testing, debugging, and observability SDK for quantum programs, simulator-first."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -62,6 +62,9 @@ Issues = "https://github.com/qlens/qlens/issues"
 Source = "https://github.com/qlens/qlens"
 Author = "https://mohammedshehu.com"
 
+[project.scripts]
+qlens = "qlens.viewer.cli:main"
+
 # The bundled pytest plugin. Installing qlens makes the fixtures/markers
 # available in any pytest run without a separate pytest-qlens package.
 [project.entry-points.pytest11]
@@ -92,6 +95,9 @@ target-version = "py311"
 # convention. Broad catches around trace emission are the contract, not
 # an oversight.
 "src/qlens/tracing/__init__.py" = ["BLE001", "S112"]
+# A request handler converts any per-request failure into a 500 response
+# rather than killing the server thread.
+"src/qlens/viewer/server.py" = ["BLE001"]
 
 [tool.mypy]
 strict = true

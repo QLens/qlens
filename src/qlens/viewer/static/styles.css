@@ -1,0 +1,58 @@
+/* Placeholder styling only. The designed system replaces this file;
+   tokens below are the seam it fills. */
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #7c6cff;
+  --pass: #3fb950;
+  --fail: #f85149;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, sans-serif;
+}
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid #21262d;
+}
+h1 { font-size: 1.1rem; margin: 0; }
+h2 { font-size: 0.95rem; color: var(--muted); }
+#health { color: var(--muted); font-family: var(--mono); font-size: 0.8rem; }
+main {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+}
+.hint { color: var(--muted); font-size: 0.85rem; }
+code, pre { font-family: var(--mono); font-size: 0.8rem; }
+pre {
+  background: var(--surface);
+  padding: 0.75rem;
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 40vh;
+}
+#run-list { list-style: none; padding: 0; margin: 0; }
+#run-list li {
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+#run-list li:hover { background: var(--surface); }
+#run-list li.failed { border-left: 3px solid var(--fail); }
+#run-list li.completed { border-left: 3px solid var(--pass); }
+#run-list li.running { border-left: 3px solid var(--accent); }
