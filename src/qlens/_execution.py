@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -52,6 +53,9 @@ class ExecutionResult:
     _counts_cache: dict[tuple[int, int | None], dict[str, int]] = field(
         default_factory=dict, repr=False
     )
+    # Set by qlens.run(trace=...): the open TracedRun this execution
+    # recorded to, so later assert_* calls append to the same trace.
+    traced_run: Any = field(default=None, repr=False, compare=False)
 
     def statevector_at(self, position: int) -> npt.NDArray[np.complex128]:
         """Statevector immediately after the gate at the given position.

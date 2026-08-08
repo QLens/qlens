@@ -21,6 +21,17 @@ def pytest_configure(config: Any) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _qlens_finish_traces() -> Any:
+    """Close any trace left open by qlens.run(trace=...) when the test
+    ends, so each test's trace record is complete and written before the
+    next test starts."""
+    yield
+    from qlens import tracing
+
+    tracing.finish_traces()
+
+
 @pytest.fixture
 def qlens_run() -> Any:
     """The qlens.run entry point, as a fixture."""

@@ -52,12 +52,27 @@ def run(
     *,
     backend: str | None = None,
     args: tuple[Any, ...] = (),
+    trace: bool | str = False,
 ) -> ExecutionResult:
     """Execute a circuit with per-gate statevector capture.
 
     ``backend`` names a registered backend explicitly; when omitted, the
     backend is detected from the circuit object's type. ``args`` binds
     parameter values for parameterized circuits.
+
+    ``trace=True`` records the run as a TraceAct trace (gate events per
+    circuit layer, final-state snapshot spooled to a sidecar file);
+    ``trace="gates"`` records per-gate events and snapshots instead.
+    Where the trace goes is TraceAct's configuration; see qlens.tracing.
     """
     resolved = get_backend(backend) if backend is not None else detect_backend(circuit)
-    return resolved.run(circuit, args=args)
+    result = resolved.run(circuit, args=args)
+    if trace:
+        if trace not in (True, "gates"):
+            raise QlensError(f"trace must be True or 'gates', got {trace!r}")
+        from qlens import tracing
+
+        result.traced_run = tracing.start_run(
+            result, mode="gates" if trace == "gates" else "layers", args=args
+        )
+    return result

@@ -30,10 +30,13 @@ def assert_unitary(
     matrix = backend.operator_matrix(circuit, args=args)
     deviation = max_unitarity_deviation(matrix)
     if deviation > atol:
-        raise QlensAssertionError(
+        error = QlensAssertionError(
             f"circuit is not unitary: max deviation of U†U from identity is "
             f"{deviation:.3e} (atol={atol:.1e})"
         )
+        _record(None, "assert_unitary", "unitarity", error)
+        raise error
+    _record(None, "assert_unitary", "unitarity", None)
 
 
 def assert_equivalent(
@@ -56,10 +59,13 @@ def assert_equivalent(
             f"{backend_b.name}); build both circuits in one framework"
         )
     if not backend_a.equivalent(circuit_a, circuit_b, atol=atol, args=args):
-        raise QlensAssertionError(
+        error = QlensAssertionError(
             "circuits are not equivalent: their unitaries differ beyond "
             f"atol={atol:.1e} (up to global phase)"
         )
+        _record(None, "assert_equivalent", "equivalence", error)
+        raise error
+    _record(None, "assert_equivalent", "equivalence", None)
 
 
 def assert_distribution(
@@ -118,10 +124,21 @@ def assert_distribution(
         raise QlensError(f"unknown test {test!r}; use 'chi_square' or 'ks'")
 
     if pvalue < tolerance:
-        raise QlensAssertionError(
+        error = QlensAssertionError(
             f"distribution mismatch: {test} p-value {pvalue:.4g} < "
             f"significance level {tolerance}"
         )
+        _record(result, "assert_distribution", "distribution", error)
+        raise error
+    _record(result, "assert_distribution", "distribution", None)
+
+
+def _record(result: Any, name: str, target: str, error: BaseException | None) -> None:
+    """Append an assertion event to the result's open trace or the
+    ambient TraceAct trace. Never raises; no-op when nothing is tracing."""
+    from qlens import tracing
+
+    tracing.record_assertion(result, name, target, error)
 
 
 def _as_counts(
