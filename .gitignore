@@ -40,3 +40,6 @@ pnpm-debug.log*
 # Editor/project metadata
 .idea/
 .vscode/
+
+# Wheels built outside dist/
+*.whl
