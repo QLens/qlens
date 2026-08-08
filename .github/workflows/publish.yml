@@ -1,0 +1,40 @@
+name: publish
+
+# Publishes to PyPI via OIDC trusted publishing when a GitHub Release is
+# published. Creating/pushing a tag alone does nothing; use
+# `gh release create vX.Y.Z --notes "..."` to trigger this.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install build
+          python -m build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Required for PyPI trusted publishing (OIDC token exchange).
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

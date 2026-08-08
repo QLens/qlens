@@ -66,17 +66,28 @@ def apply_gate(
     params: tuple[float, ...],
     num_qubits: int,
 ) -> npt.NDArray[np.complex128]:
-    """Apply one gate to a big-endian statevector."""
+    """Apply one gate to a big-endian statevector, or to a batch of them.
+
+    ``state`` is either shape ``(2**num_qubits,)`` or
+    ``(2**num_qubits, m)`` with each column an independent statevector;
+    batching lets ``unitary`` evolve all basis columns in one pass over
+    the program instead of one full pass per column.
+    """
     matrix = gate_matrix(gate, params)
     k = len(qubits)
-    tensor = state.reshape([2] * num_qubits)
-    # Move the acted-on axes to the front, apply, move back.
+    shape = state.shape
+    tensor = state.reshape([2] * num_qubits + list(shape[1:]))
+    # Move the acted-on qubit axes to the front, apply, move back. Any
+    # batch axes stay trailing throughout.
     rest = [ax for ax in range(num_qubits) if ax not in qubits]
-    perm = list(qubits) + rest
+    batch_axes = list(range(num_qubits, tensor.ndim))
+    perm = list(qubits) + rest + batch_axes
     tensor = tensor.transpose(perm).reshape(2**k, -1)
-    tensor = (matrix @ tensor).reshape([2] * num_qubits)
+    tensor = (matrix @ tensor).reshape(
+        [2] * num_qubits + list(shape[1:])
+    )
     inverse = np.argsort(perm)
-    return np.ascontiguousarray(tensor.transpose(inverse)).reshape(-1)
+    return np.ascontiguousarray(tensor.transpose(inverse)).reshape(shape)
 
 
 def simulate(
@@ -95,12 +106,12 @@ def unitary(
     program: tuple[tuple[str, tuple[int, ...], tuple[float, ...]], ...],
     num_qubits: int,
 ) -> npt.NDArray[np.complex128]:
-    """Full big-endian unitary of a neutral gate program."""
+    """Full big-endian unitary of a neutral gate program.
+
+    Evolves the identity matrix through the program in one pass, all
+    basis columns batched, rather than re-simulating per column.
+    """
     matrix = np.eye(2**num_qubits, dtype=np.complex128)
-    for column in range(2**num_qubits):
-        state = np.zeros(2**num_qubits, dtype=np.complex128)
-        state[column] = 1.0
-        for gate, qubits, params in program:
-            state = apply_gate(state, gate, qubits, params, num_qubits)
-        matrix[:, column] = state
+    for gate, qubits, params in program:
+        matrix = apply_gate(matrix, gate, qubits, params, num_qubits)
     return matrix

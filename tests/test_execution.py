@@ -104,3 +104,52 @@ def test_cross_backend_states_identical() -> None:
     result_p = qlens.run(BUILDERS["pennylane"](program, 2))
     for snap_q, snap_p in zip(result_q.snapshots, result_p.snapshots):
         assert np.allclose(snap_q.statevector, snap_p.statevector)
+
+
+def test_barrier_and_delay_produce_no_snapshot_qiskit() -> None:
+    qiskit = pytest.importorskip("qiskit")
+
+    circuit = qiskit.QuantumCircuit(2)
+    circuit.h(0)
+    circuit.barrier()
+    circuit.cx(0, 1)
+    circuit.barrier(0)
+    result = qlens.run(circuit)
+    # Structural pseudo-instructions are invisible: two gates, two
+    # snapshots, contiguous positions.
+    assert [(s.position, s.gate) for s in result.snapshots] == [(0, "h"), (1, "cx")]
+
+
+def test_non_integer_wire_labels_pennylane() -> None:
+    qml = pytest.importorskip("pennylane")
+
+    @qml.qnode(qml.device("default.qubit", wires=["alice", "bob"]))
+    def circuit() -> Any:
+        qml.Hadamard(wires="alice")
+        qml.CNOT(wires=["alice", "bob"])
+        return qml.state()
+
+    result = qlens.run(circuit)
+    # String labels sort canonically: alice=qubit 0, bob=qubit 1. The
+    # result must be indistinguishable from an integer-wired Bell state.
+    assert result.num_qubits == 2
+    assert result.snapshots[1].qubits == (0, 1)
+    expected = np.array([1, 0, 0, 1], dtype=np.complex128) / np.sqrt(2)
+    assert np.allclose(result.final_statevector, expected)
+    assert set(result.counts(256, seed=3)) == {"00", "11"}
+
+
+def test_mixed_wire_label_types_pennylane() -> None:
+    # Integer and string labels in one circuit: unsortable directly
+    # (TypeError path), must fall back to string ordering, not crash.
+    qml = pytest.importorskip("pennylane")
+
+    @qml.qnode(qml.device("default.qubit", wires=[0, "aux"]))
+    def circuit() -> Any:
+        qml.PauliX(wires=0)
+        return qml.state()
+
+    result = qlens.run(circuit)
+    assert result.num_qubits == 2
+    # "0" < "aux" by string sort, so wire 0 is qubit 0.
+    assert result.counts(64, seed=3) == {"10": 64}
