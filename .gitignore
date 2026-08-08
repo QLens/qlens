@@ -1,0 +1,31 @@
+# Internal documentation
+internal/
+
+# macOS and system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+__MACOSX/
+Thumbs.db
+Desktop.ini
+
+# Local environment and tool state
+.env
+.env.*
+.claude/
+.codex/
+
+# Build/package artifacts and logs
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Editor/project metadata
+.idea/
+.vscode/
