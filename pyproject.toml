@@ -82,4 +82,10 @@ target-version = "py311"
 
 [tool.mypy]
 strict = true
-python_version = "3.11"
+# Analysis version 3.12, not the 3.11 runtime floor: numpy's stubs use the
+# PEP 695 `type` statement, which mypy only parses when targeting >=3.12.
+python_version = "3.12"
+
+[[tool.mypy.overrides]]
+module = ["qiskit.*", "pennylane.*", "scipy.*"]
+ignore_missing_imports = true

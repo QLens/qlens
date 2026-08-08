@@ -99,7 +99,7 @@ def assert_distribution(
         counts = _as_counts(result, shots)
         pvalue = chi_square_pvalue(counts, expected)
     elif test == "ks":
-        if isinstance(result, ExecutionResult) or isinstance(result, Mapping):
+        if isinstance(result, (ExecutionResult, Mapping)):
             raise QlensError(
                 "ks compares continuous samples; pass an array of samples as "
                 "result (for counts use test='chi_square')"

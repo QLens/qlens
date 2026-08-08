@@ -50,7 +50,7 @@ class PennyLaneBackend(Backend):
         import pennylane as qml
 
         tape = self._tape(circuit, args)
-        wires = self._wire_list(tape)
+        wires = self._wire_list(tape, circuit)
         num_qubits = len(wires)
 
         ops = list(tape.operations)
@@ -108,7 +108,7 @@ class PennyLaneBackend(Backend):
         import pennylane as qml
 
         tape = self._tape(circuit, args)
-        wires = self._wire_list(tape)
+        wires = self._wire_list(tape, circuit)
         matrix = qml.matrix(tape, wire_order=wires)
         return np.asarray(matrix, dtype=np.complex128)
 
@@ -128,7 +128,7 @@ class PennyLaneBackend(Backend):
         import pennylane as qml
 
         tape = self._tape(circuit, args)
-        wires = self._wire_list(tape)
+        wires = self._wire_list(tape, circuit)
         counts_tape = qml.tape.QuantumTape(
             ops=list(tape.operations),
             measurements=[qml.counts(wires=wires, all_outcomes=False)],
@@ -156,10 +156,16 @@ class PennyLaneBackend(Backend):
         return tape
 
     @staticmethod
-    def _wire_list(tape: Any) -> list[Any]:
+    def _wire_list(tape: Any, circuit: Any) -> list[Any]:
         """Wires in sorted order, the deterministic canonical order for
-        integer-labeled circuits. Non-integer labels sort by string."""
-        wires = list(tape.wires)
+        integer-labeled circuits. Non-integer labels sort by string.
+
+        The union of tape wires and device wires: the tape alone misses
+        wires the device declares but no gate touches (an idle qubit is
+        still a qubit — its bit must appear in counts and its axis in
+        statevectors), and a gateless tape carries no wires at all."""
+        device_wires = getattr(circuit.device, "wires", None)
+        wires = set(tape.wires) | set(device_wires or [])
         try:
             return sorted(wires)
         except TypeError:
