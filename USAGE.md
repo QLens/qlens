@@ -210,3 +210,108 @@ assert not failures
 ```
 
 `build` interprets the suite's neutral gate programs (vocabulary: `i x y z h s t cx cz swap ccx rx ry rz`) into your framework's circuits; the two bundled interpreters in `qlens.conformance._builders` are the reference examples. Expected results come from an independent reference simulator, so certifying against the suite is certifying against the spec, not against another framework.
+
+## Step-through inspection
+
+`qlens.inspect(result)` opens a cursor over a run's captured snapshots. Nothing re-executes: the run already captured the statevector at every gate boundary.
+
+```python
+result = qlens.run(circuit)
+ins = qlens.inspect(result)
+
+ins.current            # Snapshot at the cursor (starts at position 0)
+ins.step()             # advance one gate
+ins.step_back()        # go back one gate
+ins.goto(-1)           # jump anywhere (negative indices work)
+ins.probabilities()    # {"00": 0.5, "11": 0.5} at the cursor
+```
+
+`ins.diff(a, b)` compares the states at two positions:
+
+```python
+diff = ins.diff(0, 1)
+diff.fidelity            # |<a|b>|^2 — 1.0 means identical up to global phase
+diff.amplitude_deltas    # {"10": (-0.707+0j), "11": (0.707+0j)}
+```
+
+Stepping past either end raises `QlensError` rather than pinning silently. `Inspector.from_trace(record, state_dir)` rebuilds an inspector from a stored trace record and its statevector sidecar, so a recorded run inspects the same way a live one does.
+
+## Recording runs as traces
+
+Qlens records circuit executions as [TraceAct](https://github.com/traceact/traceact) traces. Where traces go is TraceAct's own configuration; Qlens emits.
+
+```python
+from traceact import configure, JsonlSink
+import qlens
+import qlens.tracing
+
+configure(project="my-experiment", sinks=[JsonlSink("data/traces/traces.jsonl")])
+qlens.tracing.configure(state_dir="data/qstates")
+
+result = qlens.run(circuit, trace=True)
+qlens.assert_distribution(result, {"00": 0.5, "11": 0.5}, seed=0)
+```
+
+| `trace=` | What gets recorded |
+|---|---|
+| `True` | One `gate` event per circuit layer (qubit-disjoint groups, gates listed on the event), one final `qstate` snapshot event. The default for long circuits. |
+| `"gates"` | One `gate` event and one `qstate` event per gate. Full granularity for debugging sessions. |
+
+Statevector arrays never enter trace records (TraceAct's payload budget truncates oversized values). The adapter spools every snapshot to a compressed sidecar file, `<state_dir>/<trace_id>.npz`, and events carry a `statevector_ref` instead. Both capture modes spool every position, so the viewer scrubs through all of them either way.
+
+`assert_*` calls made against a traced result append `assertion` events to the same trace, pass or fail; a failed assertion fails the whole trace record. The trace stays open until the end of the current test (the pytest plugin closes it automatically), an explicit `qlens.tracing.finish_traces()`, or interpreter exit.
+
+Event budgets are computed per run from the circuit itself, with a floor of 1000 events (`qlens.tracing.configure(max_events=...)` raises or lowers the floor). A `budget_hit` flag on a Qlens trace is an anomaly, never an expected artifact.
+
+`qlens.tracing.configure(correlation_id="corr_sweep_1")` stamps every subsequent run's trace, grouping an experiment or parameter sweep; `project=` overrides TraceAct's package-level project name for Qlens traces.
+
+Recording never breaks a run: any failure inside the tracing layer (unwritable spool directory, sink trouble) leaves the circuit's result intact, with `result.traced_run` set to `None`.
+
+## The viewer
+
+```bash
+qlens view data/traces/traces.jsonl
+```
+
+Opens a local web viewer over a trace source (a TraceAct `.jsonl` file, a folder of them, or a `SqliteSink` database). Runs recorded with `trace=True` or `trace="gates"` appear in the run browser; the page updates live while a test session writes new traces, including in-flight runs when TraceAct's `stream_progress` is enabled.
+
+| Flag | Meaning |
+|---|---|
+| `--state-dir` | Directory holding the statevector sidecars (default `data/qstates`) |
+| `--port` | First port to try (default 8766, auto-increments) |
+| `--host` | Bind address (default 127.0.0.1) |
+| `--no-browser` | Don't open a browser tab |
+
+The JSON API behind the page, for anything that wants the data directly:
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/health` | Version and source |
+| `GET /api/circuits` | Run summaries, newest first, with assertion pass/fail counts |
+| `GET /api/circuit?trace_id=` | One run: layers, gates, qstate refs, assertion markers |
+| `GET /api/state?trace_id=&position=` | Amplitudes at a captured position (`-1` = final) |
+| `GET /api/stream` | Server-Sent Events: run summaries as they land or change |
+
+The same trace files open in TraceAct's own generic viewer (`traceact view`), where gate events render as generic timeline nodes.
+
+## A debugging walkthrough
+
+1. A test fails:
+
+   ```python
+   def test_ghz():
+       result = qlens.run(build_ghz(), trace=True)
+       qlens.assert_distribution(result, {"000": 0.5, "111": 0.5}, seed=0)  # fails
+   ```
+
+2. Open the viewer on the trace source: `qlens view data/traces/traces.jsonl`. The run shows a red assertion marker.
+
+3. Step through the recorded states without re-running anything:
+
+   ```python
+   ins = qlens.inspect(result)          # or Inspector.from_trace(record, "data/qstates")
+   ins.goto(-1); ins.probabilities()    # what the circuit produced
+   ins.diff(0, 1)                        # where the state diverged
+   ```
+
+4. The position whose diff departs from expectation names the gate to fix.

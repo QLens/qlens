@@ -68,3 +68,34 @@
 3. Backend captures a per-gate statevector walk into `Snapshot` objects, converting to canonical form at its boundary.
 4. `ExecutionResult` returns; counts are a lazy callback into the backend, cached per shot count.
 5. `assert_distribution(result, expected)` draws counts, runs the chi-square test, and raises `QlensAssertionError` if the p-value falls below the significance level.
+
+## Phase 2 components
+
+```
+   qlens.run(circuit, trace=True)
+            │
+   ┌────────▼─────────┐        ┌───────────────────┐
+   │  tracing adapter   │──────▶│ TraceAct sinks      │  (JSONL / SQLite,
+   │  (layer grouping,  │        │ (user-configured)   │   TraceAct's config)
+   │   computed budget) │        └─────────┬─────────┘
+   └────────┬─────────┘                    │
+            │ spools arrays        ┌───────▼─────────┐     ┌─────────────────┐
+   ┌────────▼─────────┐          │  qlens view        │────▶│ browser page     │
+   │ .npz sidecars      │◀────────│  (stdlib server:   │     │ (static files,   │
+   │ (<state_dir>/       │  reads  │   JSON API + SSE)  │     │  designed UI)    │
+   │  <trace_id>.npz)     │          └───────────────────┘     └─────────────────┘
+   └────────┬─────────┘
+            │
+   ┌────────▼─────────┐
+   │ Inspector           │   qlens.inspect(result)  — live results
+   │ (cursor, diff)      │   Inspector.from_trace() — stored traces
+   └───────────────────┘
+```
+
+**Tracing adapter (`tracing/`).** Emits one TraceAct trace per run through the public API only (`ActionTrace.start`, `trace.event`), modelled on TraceAct's LangChain adapter: traces start without entering the ambient context, close via direct `__exit__`, and any recording failure leaves the run's result intact. Gate events group by qubit-disjoint layers (`_layers.py`) by default; per-gate granularity is `trace="gates"`. Event budgets compute from the circuit with a 1000-event floor. Assertion events append to the still-open trace until the pytest plugin, `finish_traces()`, or interpreter exit closes it.
+
+**Sidecar spool (`tracing/_spool.py`).** Amplitude arrays never enter trace records (TraceAct's payload budget would truncate them); every snapshot spools to a compressed `.npz` keyed by gate position, and events carry `statevector_ref` strings. `load_snapshots()` rebuilds a full snapshot list from a stored record plus sidecar.
+
+**Viewer server (`viewer/`).** Stdlib `ThreadingHTTPServer` over a TraceAct source, read through `TraceLog` (which handles JSONL, folders, SQLite, and in-flight stub dedup). JSON endpoints for run lists, circuit structure, per-position amplitudes, and an SSE stream that emits run summaries as they land or change. Static frontend is three files, no build step; the current page is a functional placeholder the designed UI replaces.
+
+**Inspector (`_inspect.py`).** A cursor over captured snapshots: stepping is list indexing, never re-execution. Works identically over a live `ExecutionResult` and a stored trace record resolved through the sidecar.

@@ -34,7 +34,10 @@ Extras: `qlens[qiskit]`, `qlens[pennylane]`, or both. Python 3.11+. Simulator-on
 - `qlens.assert_distribution(result, expected)`: chi-square or KS validation of measurement output against an expected distribution, without hand-rolling the statistics.
 - `qlens.assert_unitary(circuit)`: unitarity within numerical tolerance.
 - `qlens.assert_equivalent(a, b)`: same unitary up to global phase, across different gate decompositions.
-- A bundled pytest plugin: fixtures and a `qlens` marker, registered on install.
+- `qlens.inspect(result)`: step-through debugging over the captured snapshots (cursor, per-position probabilities, state diffs with fidelity), with no re-execution.
+- `qlens.run(circuit, trace=True)`: records the run as a [TraceAct](https://github.com/traceact/traceact) trace with statevector sidecars, assertion pass/fail events, and per-run event budgets.
+- `qlens view traces.jsonl`: a local viewer server with a JSON API and live Server-Sent Events over recorded runs.
+- A bundled pytest plugin: fixtures, a `qlens` marker, and automatic trace finalization per test.
 - A public backend contract with entry-point discovery, so further frameworks (Cirq and beyond) plug in as separate packages certified against a shipped conformance suite.
 
 ## Documentation
