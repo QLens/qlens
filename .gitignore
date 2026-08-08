@@ -16,6 +16,17 @@ Desktop.ini
 .claude/
 .codex/
 
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # Build/package artifacts and logs
 *.zip
 *.tar

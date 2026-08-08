@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qlens"
+version = "0.1.0"
+description = "A testing, debugging, and observability SDK for quantum programs, simulator-first."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Mo Shehu" }]
+keywords = [
+    "quantum",
+    "quantum-computing",
+    "testing",
+    "debugging",
+    "qiskit",
+    "pennylane",
+    "pytest",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Framework :: Pytest",
+]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+qiskit = ["qiskit>=2.5"]
+pennylane = ["pennylane>=0.45"]
+dev = [
+    "qiskit>=2.5",
+    "pennylane>=0.45",
+    "pytest>=8",
+    "pytest-randomly>=3.15",
+    "mypy>=1.10",
+    "ruff>=0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/qlens/qlens"
+Documentation = "https://github.com/qlens/qlens/blob/main/USAGE.md"
+Changelog = "https://github.com/qlens/qlens/blob/main/CHANGELOG.md"
+Issues = "https://github.com/qlens/qlens/issues"
+Source = "https://github.com/qlens/qlens"
+Author = "https://mohammedshehu.com"
+
+# The bundled pytest plugin. Installing qlens makes the fixtures/markers
+# available in any pytest run without a separate pytest-qlens package.
+[project.entry-points.pytest11]
+qlens = "qlens.pytest_plugin"
+
+# First-party backends register through the same entry-point group a
+# third-party backend (e.g. qlens-cirq) would use. The registry discovers
+# backends exclusively through this group — no private shortcuts.
+[project.entry-points."qlens.backends"]
+qiskit = "qlens.backends._qiskit:QiskitBackend"
+pennylane = "qlens.backends._pennylane:PennyLaneBackend"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qlens"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
