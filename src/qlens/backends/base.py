@@ -73,7 +73,12 @@ class Backend(ABC):
 
     @abstractmethod
     def counts(
-        self, circuit: Any, *, shots: int, args: tuple[Any, ...] = ()
+        self,
+        circuit: Any,
+        *,
+        shots: int,
+        seed: int | None = None,
+        args: tuple[Any, ...] = (),
     ) -> dict[str, int]:
         """Sample measurement counts over all qubits.
 
@@ -81,4 +86,8 @@ class Backend(ABC):
         ``shots``. Any measurement the user's circuit declares is ignored;
         Qlens measures all qubits in the computational basis uniformly
         across backends.
+
+        ``seed`` makes sampling reproducible: the same circuit, shots,
+        and seed must return identical counts on repeated calls. Seeds
+        are not required to reproduce across backends or versions.
         """

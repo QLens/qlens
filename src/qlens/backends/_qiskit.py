@@ -109,7 +109,7 @@ class QiskitBackend(Backend):
             backend=self.name,
             num_qubits=num_qubits,
             snapshots=snapshots,
-            _counts_fn=lambda shots: self.counts(circuit, shots=shots, args=args),
+            _counts_fn=lambda shots, seed: self.counts(circuit, shots=shots, seed=seed, args=args),
         )
 
     # -- structural checks -------------------------------------------------
@@ -144,7 +144,14 @@ class QiskitBackend(Backend):
 
     # -- sampling ----------------------------------------------------------
 
-    def counts(self, circuit: Any, *, shots: int, args: tuple[Any, ...] = ()) -> dict[str, int]:
+    def counts(
+        self,
+        circuit: Any,
+        *,
+        shots: int,
+        seed: int | None = None,
+        args: tuple[Any, ...] = (),
+    ) -> dict[str, int]:
         from qiskit import ClassicalRegister
         from qiskit.primitives import StatevectorSampler
 
@@ -157,7 +164,8 @@ class QiskitBackend(Backend):
         measured.add_register(creg)
         measured.measure(range(measured.num_qubits), creg)
 
-        result = StatevectorSampler(default_shots=shots).run([measured]).result()
+        sampler = StatevectorSampler(default_shots=shots, seed=seed)
+        result = sampler.run([measured]).result()
         raw = result[0].data.qlens.get_counts()
         # Qiskit bitstrings are little-endian; canonical form is big-endian.
         return {bitstring[::-1]: count for bitstring, count in raw.items()}

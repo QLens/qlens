@@ -69,6 +69,7 @@ def assert_distribution(
     tolerance: float = 0.05,
     test: Literal["chi_square", "ks"] = "chi_square",
     shots: int = DEFAULT_SHOTS,
+    seed: int | None = None,
     reference_args: tuple[float, ...] = (),
 ) -> None:
     """Assert sampled output matches an expected distribution.
@@ -85,7 +86,9 @@ def assert_distribution(
     ``tolerance`` is the significance level: the assertion passes when
     the test's p-value is >= tolerance, i.e. the data gives no grounds at
     that level to reject "output matches expected." Smaller tolerance =
-    laxer test. See USAGE.md for choosing between chi_square and ks.
+    laxer test. A correct circuit fails at rate ``tolerance`` by chance;
+    pass ``seed`` for reproducible sampling in CI. See USAGE.md for
+    choosing between chi_square and ks.
     """
     if not 0.0 < tolerance < 1.0:
         raise QlensError(f"tolerance must be in (0, 1), got {tolerance}")
@@ -96,7 +99,7 @@ def assert_distribution(
                 "chi_square expects a mapping of bitstrings to probabilities; "
                 "for continuous references use test='ks'"
             )
-        counts = _as_counts(result, shots)
+        counts = _as_counts(result, shots, seed)
         pvalue = chi_square_pvalue(counts, expected)
     elif test == "ks":
         if isinstance(result, (ExecutionResult, Mapping)):
@@ -121,9 +124,11 @@ def assert_distribution(
         )
 
 
-def _as_counts(result: ExecutionResult | Mapping[str, int] | Any, shots: int) -> dict[str, int]:
+def _as_counts(
+    result: ExecutionResult | Mapping[str, int] | Any, shots: int, seed: int | None
+) -> dict[str, int]:
     if isinstance(result, ExecutionResult):
-        return result.counts(shots)
+        return result.counts(shots, seed=seed)
     if isinstance(result, Mapping):
         return dict(result)
     raise QlensError(

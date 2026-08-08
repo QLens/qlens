@@ -97,7 +97,7 @@ class PennyLaneBackend(Backend):
             backend=self.name,
             num_qubits=num_qubits,
             snapshots=snapshots,
-            _counts_fn=lambda shots: self.counts(circuit, shots=shots, args=args),
+            _counts_fn=lambda shots, seed: self.counts(circuit, shots=shots, seed=seed, args=args),
         )
 
     # -- structural checks -------------------------------------------------
@@ -124,7 +124,14 @@ class PennyLaneBackend(Backend):
 
     # -- sampling ----------------------------------------------------------
 
-    def counts(self, circuit: Any, *, shots: int, args: tuple[Any, ...] = ()) -> dict[str, int]:
+    def counts(
+        self,
+        circuit: Any,
+        *,
+        shots: int,
+        seed: int | None = None,
+        args: tuple[Any, ...] = (),
+    ) -> dict[str, int]:
         import pennylane as qml
 
         tape = self._tape(circuit, args)
@@ -134,7 +141,7 @@ class PennyLaneBackend(Backend):
             measurements=[qml.counts(wires=wires, all_outcomes=False)],
             shots=shots,
         )
-        device = qml.device("default.qubit", wires=wires)
+        device = qml.device("default.qubit", wires=wires, seed=seed)
         (raw,) = device.execute([counts_tape])
         # PennyLane is already big-endian (wire order = reading order).
         return {str(bitstring): int(count) for bitstring, count in raw.items()}

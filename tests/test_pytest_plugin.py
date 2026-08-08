@@ -22,7 +22,7 @@ def test_fixtures_available_and_bell_test_passes(pytester: Any) -> None:
             circuit.h(0)
             circuit.cx(0, 1)
             result = qlens_run(circuit)
-            assert_distribution(result, {"00": 0.5, "11": 0.5})
+            assert_distribution(result, {"00": 0.5, "11": 0.5}, seed=0)
         """
     )
     outcome = pytester.runpytest()

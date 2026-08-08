@@ -15,7 +15,7 @@ def test_bell_distribution():
     circuit.cx(0, 1)
 
     result = qlens.run(circuit)
-    qlens.assert_distribution(result, {"00": 0.5, "11": 0.5})
+    qlens.assert_distribution(result, {"00": 0.5, "11": 0.5}, seed=0)
 ```
 
 The same test body works against a PennyLane `QNode` unchanged, and produces the same canonical results: Qlens defines one semantic convention (big-endian bitstrings, canonical basis ordering) and every backend converts at its own boundary.

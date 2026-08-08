@@ -41,11 +41,13 @@ __all__ = [
 
 _STATE_ATOL = 1e-8
 _UNITARY_ATOL = 1e-8
-# Deliberately loose: a correct backend fails a 0.001-level chi-square
-# roughly once per thousand runs per case. Sampling checks guard against
-# wrong distributions, not statistical noise.
+# Sampling runs seeded, so certification is deterministic: a conforming
+# backend passes every run, and a wrong distribution (e.g. an endianness
+# slip) still fails overwhelmingly under any seed. The alpha is loose
+# because the check guards against wrong distributions, not noise.
 _SAMPLING_ALPHA = 1e-3
 _SAMPLING_SHOTS = 4096
+_SAMPLING_SEED = 20260808
 
 
 def run_conformance(
@@ -110,7 +112,7 @@ def _check_case(
     if not backend.is_unitary(circuit, atol=_UNITARY_ATOL):
         failures.append(f"{case.name}: is_unitary() returned False for a unitary circuit")
 
-    counts = backend.counts(circuit, shots=_SAMPLING_SHOTS)
+    counts = backend.counts(circuit, shots=_SAMPLING_SHOTS, seed=_SAMPLING_SEED)
     if sum(counts.values()) != _SAMPLING_SHOTS:
         failures.append(
             f"{case.name}: counts sum to {sum(counts.values())}, "

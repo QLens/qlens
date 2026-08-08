@@ -140,7 +140,15 @@ def test_distribution_ks_rejects_counts_mapping() -> None:
 
 def test_distribution_bell_passes(build: Any) -> None:
     result = qlens.run(build(bell_program(), 2))
-    qlens.assert_distribution(result, {"00": 0.5, "11": 0.5})
+    qlens.assert_distribution(result, {"00": 0.5, "11": 0.5}, seed=7)
+
+
+def test_counts_seed_reproducible(build: Any) -> None:
+    result = qlens.run(build(bell_program(), 2))
+    first = result.counts(512, seed=42)
+    # A fresh run must reproduce the same draw for the same seed.
+    second = qlens.run(build(bell_program(), 2)).counts(512, seed=42)
+    assert first == second
 
 
 def test_distribution_accepts_raw_counts() -> None:

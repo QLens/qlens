@@ -48,8 +48,10 @@ class ExecutionResult:
     backend: str
     num_qubits: int
     snapshots: list[Snapshot]
-    _counts_fn: Callable[[int], dict[str, int]] = field(repr=False)
-    _counts_cache: dict[int, dict[str, int]] = field(default_factory=dict, repr=False)
+    _counts_fn: Callable[[int, int | None], dict[str, int]] = field(repr=False)
+    _counts_cache: dict[tuple[int, int | None], dict[str, int]] = field(
+        default_factory=dict, repr=False
+    )
 
     def statevector_at(self, position: int) -> npt.NDArray[np.complex128]:
         """Statevector immediately after the gate at the given position.
@@ -67,13 +69,16 @@ class ExecutionResult:
         """
         return self.snapshots[-1].statevector
 
-    def counts(self, shots: int = 1024) -> dict[str, int]:
+    def counts(self, shots: int = 1024, *, seed: int | None = None) -> dict[str, int]:
         """Measurement counts over all qubits in the computational basis.
 
-        Keys are big-endian bitstrings (qubit 0 leftmost). Results are
-        cached per shot count; repeated calls with the same shots value
-        do not re-sample.
+        Keys are big-endian bitstrings (qubit 0 leftmost). ``seed`` makes
+        sampling reproducible run to run, which keeps CI assertions at a
+        given significance level from failing at that level's rate by
+        chance. Results are cached per (shots, seed); repeated calls with
+        the same values do not re-sample.
         """
-        if shots not in self._counts_cache:
-            self._counts_cache[shots] = self._counts_fn(shots)
-        return self._counts_cache[shots]
+        key = (shots, seed)
+        if key not in self._counts_cache:
+            self._counts_cache[key] = self._counts_fn(shots, seed)
+        return self._counts_cache[key]

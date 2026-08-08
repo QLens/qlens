@@ -48,6 +48,8 @@ One `Snapshot` per gate, in execution order, positions numbered from 0. Structur
 
 `counts(circuit, shots=n)` returns `dict[str, int]` with values summing to `n`, keys all of length `num_qubits` over `{0, 1}`. Zero-count outcomes are omitted. Any measurement the user's circuit declares is ignored: every backend measures all qubits in the computational basis, so identical circuits produce identically-shaped counts on every backend.
 
+A `seed` argument must make sampling reproducible: identical circuit, shots, and seed return identical counts on repeated calls within one backend and version. Seeds are not required to reproduce across backends or versions.
+
 ## Tolerances
 
 - `atol` in `is_unitary` bounds the largest absolute deviation of U†U from the identity.

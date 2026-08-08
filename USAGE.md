@@ -25,7 +25,7 @@ def test_bell_distribution():
     circuit.cx(0, 1)
 
     result = qlens.run(circuit)
-    qlens.assert_distribution(result, {"00": 0.5, "11": 0.5})
+    qlens.assert_distribution(result, {"00": 0.5, "11": 0.5}, seed=0)
 
 
 def test_bell_state_evolution():
@@ -63,7 +63,7 @@ def test_bell_distribution_pennylane():
         return qml.state()
 
     result = qlens.run(circuit)
-    qlens.assert_distribution(result, {"00": 0.5, "11": 0.5})
+    qlens.assert_distribution(result, {"00": 0.5, "11": 0.5}, seed=0)
 ```
 
 ## qlens.run
@@ -86,7 +86,7 @@ Executes a circuit with per-gate statevector capture and returns an `ExecutionRe
 | `snapshots` | One `Snapshot` per gate, in execution order: `position`, `gate` (lowercase name), `qubits` (indices, controls first), `params`, `statevector`. |
 | `statevector_at(position)` | Statevector immediately after the gate at that position. |
 | `final_statevector` | Statevector after the last gate. |
-| `counts(shots=1024)` | Sampled measurement counts over all qubits, big-endian bitstring keys. Lazy and cached per shot count. |
+| `counts(shots=1024, seed=None)` | Sampled measurement counts over all qubits, big-endian bitstring keys. Lazy and cached per (shots, seed). |
 
 Any measurement the circuit itself declares is ignored: Qlens measures all qubits in the computational basis, identically on every backend. Circuits containing mid-circuit measurement or reset raise `UnsupportedCircuitError` (Phase 1 captures pure statevector evolution).
 
@@ -108,10 +108,11 @@ Validates sampled output against an expected distribution.
 | `expected` | `{bitstring: probability}` for chi-square (relative weights accepted). For KS: an array of reference samples, or a scipy distribution name with `reference_args`. |
 | `tolerance` | Significance level. The assertion passes when the p-value is at or above it. |
 | `test` | `"chi_square"` (default) or `"ks"`. |
+| `seed` | Seeds the sampling when `result` is an `ExecutionResult`. Without it, a correct circuit fails at rate `tolerance` by chance; seed CI tests. |
 
 **Choosing the test.** Use `chi_square` for discrete measurement outcomes, which is the normal case: comparing bitstring counts against expected probabilities. Use `ks` for continuous-valued samples, such as a sequence of expectation-value estimates. Passing counts to `ks` or samples to `chi_square` raises `QlensError` rather than silently computing the wrong statistic.
 
-**Reading the tolerance.** `tolerance` is a significance level, not a distance. `tolerance=0.05` means: reject when the observed counts would occur less than 5% of the time under the expected distribution. Raising it makes the test stricter. A correct circuit fails at rate `tolerance` by chance, so very high values produce flaky tests.
+**Reading the tolerance.** `tolerance` is a significance level, not a distance. `tolerance=0.05` means: reject when the observed counts would occur less than 5% of the time under the expected distribution. Raising it makes the test stricter. A correct circuit fails at rate `tolerance` by chance; a suite of unseeded 0.05-level assertions flakes at 5% per assertion. Pass `seed` to make sampling reproducible; the seed reproduces within one backend and version, not across them.
 
 ### assert_unitary
 
@@ -146,7 +147,7 @@ def test_bell(qlens_run, assert_distribution):
     circuit = QuantumCircuit(2)
     circuit.h(0)
     circuit.cx(0, 1)
-    assert_distribution(qlens_run(circuit), {"00": 0.5, "11": 0.5})
+    assert_distribution(qlens_run(circuit), {"00": 0.5, "11": 0.5}, seed=0)
 ```
 
 ## Parameterized circuits
