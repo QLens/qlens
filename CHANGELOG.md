@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 — 2026-08-09
+
+Assertions that name a point in the run, and a choice of how a distribution is compared.
+
+### Added
+
+- `at=` on `assert_distribution`: check the state captured after a given gate position rather than the circuit's final state. The assertion then marks that position in the viewer's timeline, so checks spread across a run instead of stacking at its end.
+- `qlens.assert_state(result, expected, fidelity=0.99, at=None)` compares a captured statevector against an expected one by fidelity, ignoring global phase.
+- `ExecutionResult.counts(at=...)` samples the state at any captured position.
+- `test="chi_square_exact"` computes the p-value by simulation instead of the asymptotic formula, which holds however rare an outcome is. `test="tvd"` compares by total variation distance, where `tolerance` is a distance rather than a significance level.
+- Reliability reporting. Chi-square's p-value assumes every outcome is expected several times over; where that does not hold the p-value can be wrong in either direction. Qlens detects the condition, reports it through `on_unreliable_statistics` (`warn`, `error`, or `ignore`), and names the alternatives. It never changes the test method on the caller's behalf. `tvd` is checked the same way against the sampling noise floor at the given shot count.
+- Project settings in `pyproject.toml` under `[tool.qlens]` (`distribution_test`, `on_unreliable_statistics`, `min_expected_count`, `resamples`), loaded by the pytest plugin at collection, settable at runtime with `qlens.configure()`, and overridable per call. The settings in force are recorded onto every traced run.
+- Assertion events carry `method` and `reliability`; run summaries carry `settings` and `assertions_unreliable`.
+- A reading guide in the viewer, written for someone new to quantum computing, reachable from the top bar at any time and from the ⓘ on each panel. A settings panel holds viewer preferences and **Reset dismissed notices**, which brings back the guided tour and anything else clicked away.
+- Flagged checks show an `UNRELIABLE` badge in the assertions table, with the explanation and copyable alternatives on the open row.
+- `qlens.QlensStatisticsWarning`, and an `assert_state` pytest fixture.
+
+### Fixed
+
+- The guided tour rendered as an empty overlay when the viewer opened in a background tab, where `requestAnimationFrame` does not fire. Its anchors are now measured synchronously.
+- The tour could follow a tab switch and anchor its annotations to whatever canvas was on screen.
+
 ## 0.3.0 — 2026-08-09
 
 The viewer UI, and the data it needed.

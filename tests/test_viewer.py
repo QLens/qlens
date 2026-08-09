@@ -244,3 +244,33 @@ def test_static_module_files_served(viewer: Any) -> None:
         with urllib.request.urlopen(f"{base}/static/{name}", timeout=10) as response:
             assert response.status == 200
             assert response.read()
+
+
+def test_assertion_events_carry_method_and_reliability(viewer: Any) -> None:
+    base, passing_id, _ = viewer
+    data = _get(f"{base}/api/circuit?trace_id={passing_id}")
+    assertion = data["assertions"][0]
+    assert assertion["method"] == "chi_square"
+    assert assertion["reliability"]["reliable"] is True
+
+
+def test_run_summary_reports_the_settings_it_used(viewer: Any) -> None:
+    """The viewer states which defaults were in force rather than
+    assuming the built-in ones."""
+    base, passing_id, _ = viewer
+    summary = next(
+        c for c in _get(f"{base}/api/circuits")["circuits"] if c["trace_id"] == passing_id
+    )
+    assert summary["settings"]["distribution_test"] == "chi_square"
+    assert summary["settings"]["on_unreliable_statistics"] == "warn"
+
+
+def test_unreliable_checks_are_counted_separately_from_failures(viewer: Any) -> None:
+    """A flagged check may have passed, and its passing is the part that
+    cannot be trusted, so it cannot be folded into the failure count."""
+    base, passing_id, _ = viewer
+    summary = next(
+        c for c in _get(f"{base}/api/circuits")["circuits"] if c["trace_id"] == passing_id
+    )
+    assert summary["assertions_failed"] == 0
+    assert summary["assertions_unreliable"] == 0

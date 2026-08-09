@@ -31,12 +31,13 @@ Extras: `qlens[qiskit]`, `qlens[pennylane]`, or both. Python 3.11+. Simulator-on
 ## What it does
 
 - `qlens.run(circuit)`: instrumented execution capturing the statevector after every gate, with lazy sampled counts.
-- `qlens.assert_distribution(result, expected)`: chi-square or KS validation of measurement output against an expected distribution, without hand-rolling the statistics.
+- `qlens.assert_distribution(result, expected)`: validates measurement output against an expected distribution by chi-square, a simulated p-value, total variation distance, or KS. When a method's assumptions do not hold for your data, Qlens says so and names the alternatives rather than switching methods behind your back.
+- `qlens.assert_state(result, expected, at=96)`: the statevector at any point in the run, compared by fidelity up to global phase. `at=` works on `assert_distribution` too, so checks mark the position they apply to.
 - `qlens.assert_unitary(circuit)`: unitarity within numerical tolerance.
 - `qlens.assert_equivalent(a, b)`: same unitary up to global phase, across different gate decompositions.
 - `qlens.inspect(result)`: step-through debugging over the captured snapshots (cursor, per-position probabilities, state diffs with fidelity), with no re-execution.
 - `qlens.run(circuit, trace=True)`: records the run as a [TraceAct](https://github.com/traceact/traceact) trace with statevector sidecars, assertion pass/fail events, and per-run event budgets.
-- `qlens view traces.jsonl`: a local viewer over recorded runs — the amplitude waterfall across every gate position, the statevector at any point against what a test expected, an A/B diff between two positions, and clickable assertion markers. `qlens view --demo` opens it on sample runs.
+- `qlens view traces.jsonl`: a local viewer over recorded runs — the amplitude waterfall across every gate position, the statevector at any point against what a test expected, an A/B diff between two positions, and clickable assertion markers. A built-in reading guide explains all of it for people new to quantum computing. `qlens view --demo` opens it on sample runs.
 - A bundled pytest plugin: fixtures, a `qlens` marker, and automatic trace finalization per test.
 - A public backend contract with entry-point discovery, so further frameworks (Cirq and beyond) plug in as separate packages certified against a shipped conformance suite.
 

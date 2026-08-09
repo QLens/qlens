@@ -40,17 +40,57 @@ def test_generates_three_runs_with_sidecars(demo: Any) -> None:
         assert (state_dir / f"{record['trace_id']}.npz").is_file()
 
 
-def test_exactly_one_run_fails(demo: Any) -> None:
+def test_the_samples_show_both_outcomes(demo: Any) -> None:
     """A viewer with nothing failing has no red marker to click, and one
     with everything failing has no contrast."""
     records, _ = demo
-    statuses = sorted(r["status"] for r in records if not r.get("in_flight"))
-    assert statuses == ["completed", "completed", "failed"]
+    statuses = [r["status"] for r in records if not r.get("in_flight")]
+    assert "completed" in statuses
+    assert "failed" in statuses
+
+
+def test_one_check_is_flagged_unreliable(demo: Any) -> None:
+    """The viewer's reliability badge, its explanation panel, and its
+    guide entry all need a flagged check to point at."""
+    records, _ = demo
+    flagged = [
+        event
+        for record in records
+        for event in record.get("events", [])
+        if event["kind"] == "assertion"
+        and (event.get("reliability") or {}).get("reliable") is False
+    ]
+    assert len(flagged) == 1
+    verdict = flagged[0]["reliability"]
+    assert verdict["code"] == "sparse_cells"
+    assert verdict["summary"]
+    assert verdict["remedies"]
+
+
+def test_the_flagged_check_sits_beside_a_sound_one_on_the_same_run(demo: Any) -> None:
+    """Identical data checked two ways is what makes the flag legible:
+    one verdict can be trusted, the other cannot."""
+    records, _ = demo
+    for record in records:
+        assertions = [e for e in record.get("events", []) if e["kind"] == "assertion"]
+        verdicts = {
+            e.get("method"): (e.get("reliability") or {}).get("reliable")
+            for e in assertions
+        }
+        if verdicts.get("chi_square") is False:
+            assert verdicts.get("tvd") is True
+            return
+    raise AssertionError("no run carries both a flagged and a sound check")
 
 
 def test_failing_run_carries_a_clickable_assertion(demo: Any) -> None:
     records, _ = demo
-    failing = next(r for r in records if r.get("status") == "failed")
+    # The ansatz run: the one whose failure is a wrong expectation
+    # rather than a statistical method that does not suit the data.
+    failing = next(
+        r for r in records
+        if r.get("status") == "failed" and (r.get("meta") or {}).get("num_qubits") == 6
+    )
     assertions = [e for e in failing["events"] if e["kind"] == "assertion"]
     failed = [a for a in assertions if a["status"] == "failed"]
     assert len(failed) == 1

@@ -371,3 +371,113 @@ canvas { display: block }
   .compare { grid-template-columns: 1fr }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)) }
 }
+
+/* ---------- reading guide and settings ---------- */
+
+.guide-scrim {
+  position: absolute; inset: 0; z-index: 30; cursor: pointer;
+  background: oklch(8% 0.01 258 / 0.86);
+  display: flex; align-items: center; justify-content: center; padding: var(--space-9);
+}
+.guide, .settings {
+  cursor: default; background: var(--bg-1);
+  border: 1px solid var(--border); border-radius: var(--radius-4);
+  box-shadow: var(--shadow-panel); overflow: hidden;
+  max-height: 100%; width: 100%;
+}
+.guide { display: grid; grid-template-columns: 240px minmax(0, 1fr); max-width: 900px }
+.settings { max-width: 620px; padding: var(--space-9); overflow-y: auto }
+
+.guide-rail {
+  background: var(--bg-0); border-right: 1px solid var(--border-subtle);
+  padding: var(--space-8) var(--space-6); display: flex; flex-direction: column;
+  gap: var(--space-3); overflow-y: auto;
+}
+.guide-rail > .micro { padding: 0 var(--space-4) var(--space-4) }
+.guide-topic {
+  display: flex; flex-direction: column; gap: 1px; text-align: left;
+  padding: var(--space-4) var(--space-5); border-radius: var(--radius-2);
+  border-left: 2px solid transparent;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.guide-topic:hover { background: var(--bg-2) }
+.guide-topic[aria-current="true"] { background: var(--bg-2); border-left-color: var(--accent-9) }
+.guide-topic-title { font-size: var(--text-sm); color: var(--text-primary) }
+.guide-topic[aria-current="true"] .guide-topic-title { color: var(--accent-9) }
+.guide-topic-blurb { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary) }
+
+.guide-body {
+  display: flex; flex-direction: column; min-height: 0;
+  padding: var(--space-9); gap: var(--space-7);
+}
+.guide-content { overflow-y: auto; min-height: 0 }
+.guide-content h2 {
+  margin: 0 0 var(--space-7); font-size: 20px; font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+}
+.guide-section + .guide-section { margin-top: var(--space-7) }
+.guide-section h3 {
+  margin: 0 0 var(--space-3); font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: var(--tracking-wide); text-transform: uppercase; color: var(--accent-9);
+}
+.guide-section p {
+  margin: 0; font-size: var(--text-sm); line-height: 1.65;
+  color: var(--text-secondary); text-wrap: pretty; max-width: 62ch;
+}
+.guide-foot {
+  display: flex; align-items: center; gap: var(--space-7); flex-wrap: wrap;
+  padding-top: var(--space-6); border-top: 1px solid var(--border-subtle);
+}
+
+.settings h2 {
+  margin: 0 0 var(--space-8); font-size: 20px; font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+}
+.settings-group + .settings-group {
+  margin-top: var(--space-8); padding-top: var(--space-8);
+  border-top: 1px solid var(--border-subtle);
+}
+.settings-row {
+  display: flex; gap: var(--space-6); align-items: flex-start;
+  padding: var(--space-4) 0; cursor: pointer;
+}
+.settings-row input { margin-top: 3px; accent-color: var(--accent-9) }
+.settings-label { display: block; font-size: var(--text-sm); color: var(--text-primary) }
+.settings-hint {
+  display: block; margin-top: 2px; font-size: var(--text-xs);
+  line-height: 1.5; color: var(--text-tertiary); text-wrap: pretty;
+}
+.settings-facts {
+  display: grid; grid-template-columns: auto 1fr; gap: var(--space-3) var(--space-7);
+  margin: var(--space-5) 0 var(--space-6); font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.settings-facts dt { color: var(--text-tertiary) }
+.settings-facts dd { margin: 0; color: var(--text-primary) }
+
+/* ---------- unreliable-statistic notice ---------- */
+
+.reliability {
+  border: 1px solid var(--warn-9); border-radius: var(--radius-3);
+  background: var(--warn-a-bg); padding: var(--space-6);
+  display: flex; flex-direction: column; gap: var(--space-5);
+}
+.reliability-head { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap }
+.reliability-body {
+  margin: 0; font-size: var(--text-xs); line-height: 1.6;
+  color: var(--text-primary); text-wrap: pretty; max-width: 70ch;
+}
+.remedies { display: flex; flex-direction: column; gap: var(--space-3) }
+.remedy { display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap }
+.remedy code {
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--accent-9);
+  background: var(--bg-0); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-2); padding: var(--space-2) var(--space-5);
+}
+
+@media (max-width: 760px) {
+  .guide { grid-template-columns: 1fr }
+  .guide-rail { flex-direction: row; overflow-x: auto; border-right: none;
+    border-bottom: 1px solid var(--border-subtle) }
+  .guide-rail > .micro { display: none }
+}

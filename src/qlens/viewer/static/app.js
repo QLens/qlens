@@ -16,6 +16,7 @@ import {
 import {
   buildHeatmap, drawWaterfall, drawBars, drawDeltaBars, phaseTokens, phaseColor,
 } from './draw.js';
+import { guideOverlay, settingsOverlay, copyButton } from './guide.js';
 
 const TABS = ['Timeline', 'State', 'Diff', 'Assertions'];
 const STORAGE_KEY = 'qlens.viewer.v1';
@@ -42,6 +43,12 @@ const state = {
   overlay: saved.overlay !== false,
   helpSeen: !!saved.helpSeen,
   helpOpen: false,
+  guideTopic: null,
+  settingsOpen: false,
+  prefs: {
+    showTour: saved.prefs?.showTour !== false,
+    overlayExpected: saved.prefs?.overlayExpected !== false,
+  },
   runs: [],
   traceId: null,
   detail: null,
@@ -112,6 +119,20 @@ function markers() {
 
 const failedCount = () =>
   (state.detail?.assertions || []).filter((a) => a.status === 'failed').length;
+
+/** Checks whose statistics do not support their own verdict. Counted
+ *  separately from failures: a flagged check may have passed, and its
+ *  passing is exactly what cannot be trusted. */
+const unreliableCount = () =>
+  (state.detail?.assertions || []).filter((a) => a.reliability?.reliable === false).length;
+
+const isUnreliable = (assertion) => assertion?.reliability?.reliable === false;
+
+function openGuide(topicId) {
+  state.guideTopic = topicId;
+  state.helpOpen = false;
+  render();
+}
 
 /* ---------- data ---------- */
 
@@ -229,7 +250,7 @@ function persist() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       tab: state.tab, threshold: state.threshold,
-      overlay: state.overlay, helpSeen: state.helpSeen,
+      overlay: state.overlay, helpSeen: state.helpSeen, prefs: state.prefs,
     }));
   } catch { /* private browsing; the view still works */ }
 }
@@ -300,6 +321,12 @@ async function setThreshold(threshold) {
 
 function setTab(name) {
   state.tab = name;
+  // Leaving the timeline dismisses its tour rather than parking it to
+  // reappear the next time that tab comes back.
+  if (name !== 'Timeline' && state.helpOpen) {
+    state.helpOpen = false;
+    state.helpSeen = true;
+  }
   persist();
   render();
 }
@@ -376,6 +403,9 @@ function topbar() {
     run?.backend && tag(run.backend),
     run?.num_qubits ? tag(`${run.num_qubits} qubits · ${run.gate_count} gates`) : null,
     h('div', { class: 'spacer' }),
+    button('Guide', { onClick: () => openGuide('overview') }),
+    iconButton('⚙', 'Settings', { onClick: () => { state.settingsOpen = true; render(); } }),
+    unreliableCount() ? status('warn', `${unreliableCount()} unreliable`) : null,
     run?.in_flight && status('live', 'recording'),
     state.playing && status('live', `playing ${state.speed}×`),
     state.detail && (failed
@@ -436,7 +466,10 @@ function waterfallPanel(geo) {
     tag(`${waterfall.num_positions} positions · true resolution`),
     tag(`${waterfall.num_states} basis states`),
     rowsPerPixel > 2 ? status('warn', `${rowsPerPixel.toFixed(1)} rows per pixel`) : null,
-    iconButton('ⓘ', 'How to read this', { onClick: () => { state.helpOpen = true; render(); } }),
+    iconButton('◎', 'Point out the parts of this panel', {
+      onClick: () => { state.helpOpen = true; state.guideTopic = null; render(); },
+    }),
+    iconButton('ⓘ', 'What the waterfall shows', { onClick: () => openGuide('waterfall') }),
   ],
     h('div', { class: 'waterfall-row' },
       h('div', {
@@ -704,6 +737,7 @@ function stateTab(geo) {
 
   return [
     panel(`Statevector — position ${currentPosition()}`, [
+      iconButton('ⓘ', 'What these bars show', { onClick: () => openGuide('state') }),
       expectation ? toggle('Overlay expected', state.overlay, (checked) => {
         state.overlay = checked; persist(); render();
       }) : null,
@@ -900,12 +934,16 @@ function l2(a, b) {
 function assertionsTab(geo) {
   const assertions = state.detail?.assertions || [];
   const failed = failedCount();
-  const columns = '34px 92px 1fr minmax(0, 260px) 170px 92px';
+  // The status column carries a pass/fail badge and, when a check's
+  // statistics do not hold, a second one beside it.
+  const columns = '28px 76px minmax(0, 1fr) minmax(0, 240px) 150px 190px';
 
   return [
     panel('Assertions', [
       failed ? status('fail', `${failed} failed`) : status('pass', 'all passing'),
+      unreliableCount() ? status('warn', `${unreliableCount()} unreliable`) : null,
       tag(`${assertions.length} recorded`),
+      iconButton('ⓘ', 'How checks are tested', { onClick: () => openGuide('checks') }),
     ],
       h('div', { class: 'grid-row', style: { gridTemplateColumns: columns, paddingBottom: 'var(--space-4)' } },
         micro(''), micro('position'), micro('assertion'), micro('detail'), micro('source'), micro('status')),
@@ -933,8 +971,16 @@ function assertionRow(assertion, key, columns, geo) {
     h('span', {}, assertion.assertion),
     h('span', { class: 'dim ellipsis', title: assertionDetail(assertion) }, assertionDetail(assertion)),
     h('span', { class: 'dim ellipsis', title: assertion.source || '' }, shortSource(assertion.source)),
-    status(assertion.status === 'failed' ? 'fail' : 'pass',
-      assertion.status === 'failed' ? 'failed' : 'pass'),
+    h('span', { style: { display: 'flex', gap: 'var(--space-4)', alignItems: 'center' } },
+      status(assertion.status === 'failed' ? 'fail' : 'pass',
+        assertion.status === 'failed' ? 'failed' : 'pass'),
+      isUnreliable(assertion)
+        ? h('span', {
+          title: assertion.reliability.summary,
+          style: { cursor: 'help' },
+        }, status('warn', 'unreliable'))
+        : null,
+    ),
   );
 
   if (!open) return h('div', {}, head);
@@ -952,6 +998,7 @@ function assertionRow(assertion, key, columns, geo) {
       record ? canvas : h('span', { class: 'readout lo' }, hasPosition ? 'loading…' : 'no state captured for this check'),
       h('div', { style: { flex: '1', minWidth: '260px', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' } },
         metricGrid(assertion),
+        reliabilityBlock(assertion),
         h('div', { style: { display: 'flex', gap: 'var(--space-5)', flexWrap: 'wrap' } },
           hasPosition ? button('Open in timeline', {
             variant: 'secondary',
@@ -970,6 +1017,34 @@ function assertionRow(assertion, key, columns, geo) {
  *  track is inset by a mark's width at each end. */
 const coveragePercent = (index, last) =>
   `calc(2px + ${(index / last) * 100}% - ${(index / last) * 4}px)`;
+
+/** Why a check's statistics cannot be trusted, and the exact lines that
+ *  would settle it. Shown in full on the open row rather than hidden in
+ *  a tooltip, because it is the thing the reader needs most. */
+function reliabilityBlock(assertion) {
+  if (!isUnreliable(assertion)) return null;
+  const { summary, remedies = [] } = assertion.reliability;
+  return h('div', { class: 'reliability' },
+    h('div', { class: 'reliability-head' },
+      status('warn', 'unreliable statistic'),
+      h('span', { class: 'readout lo' }, `method: ${assertion.method || 'unknown'}`),
+    ),
+    h('p', { class: 'reliability-body' }, summary),
+    remedies.length
+      ? h('div', { class: 'remedies' },
+        micro('use instead'),
+        remedies.map((remedy) => h('div', { class: 'remedy' },
+          h('code', {}, remedy),
+          copyButton('Copy', remedy),
+        )),
+      )
+      : null,
+    h('button', {
+      class: 'btn btn-ghost', type: 'button',
+      onClick: () => openGuide('checks'),
+    }, 'What does this mean?'),
+  );
+}
 
 function coveragePanel(assertions) {
   const list = positions();
@@ -1035,7 +1110,13 @@ function helpOverlay() {
 
   // Anchors come from the live layout rather than the geometry model, so
   // the guide cannot drift out of register with what is on screen.
-  requestAnimationFrame(() => {
+  //
+  // Measured synchronously: render() has already put the panels in the
+  // document, so getBoundingClientRect forces the layout it needs. A
+  // requestAnimationFrame here would never fire in a background tab, and
+  // webbrowser.open frequently lands the viewer in one, leaving an empty
+  // scrim over the app.
+  (() => {
     const body = document.getElementById('body');
     const canvas = body?.querySelector('canvas');
     const strip = body?.querySelector('svg[width]');
@@ -1111,7 +1192,7 @@ function helpOverlay() {
       'The wire strip maps x identically, so a break in the field lines up with the gate that caused it.',
       { left: g.left + 8, top: g.top + g.height + 104, width: 290 }));
     overlay.prepend(lines);
-  });
+  })();
 
   return overlay;
 }
@@ -1188,11 +1269,50 @@ function render() {
   else if (state.tab === 'Diff') body.append(...diffTab(geo));
   else body.append(...assertionsTab(geo));
 
-  if (state.helpOpen || (!state.helpSeen && state.tab === 'Timeline')) {
+  // The tour annotates the timeline's own panels, so it belongs to that
+  // tab whether it was opened by hand or shown on first run. Anywhere
+  // else it would anchor its leader lines to whatever canvas happened to
+  // be on screen.
+  if (state.tab === 'Timeline'
+      && (state.helpOpen || (!state.helpSeen && state.prefs.showTour))) {
     state.helpOpen = true;
     body.append(helpOverlay());
   }
+  if (state.guideTopic) {
+    body.append(guideOverlay({
+      topicId: state.guideTopic,
+      onTopic: (id) => { state.guideTopic = id; render(); },
+      onClose: () => { state.guideTopic = null; render(); },
+    }));
+  }
+  if (state.settingsOpen) {
+    body.append(settingsOverlay({
+      prefs: state.prefs,
+      runSettings: state.detail?.settings || {},
+      onChange: (key, value) => {
+        state.prefs[key] = value;
+        if (key === 'overlayExpected') state.overlay = value;
+        persist();
+        render();
+      },
+      onResetNotices: resetNotices,
+      onClose: () => { state.settingsOpen = false; render(); },
+    }));
+  }
   body.scrollTop = scrollTop;
+}
+
+/** Bring every dismissed piece of guidance back. Someone who clicked a
+ *  notice away before reading it has no other way to recover it. */
+function resetNotices() {
+  state.helpSeen = false;
+  state.prefs.showTour = true;
+  state.settingsOpen = false;
+  state.guideTopic = null;
+  state.tab = 'Timeline';
+  state.helpOpen = true;
+  persist();
+  render();
 }
 
 function emptyState() {

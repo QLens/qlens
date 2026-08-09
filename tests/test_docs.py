@@ -87,3 +87,33 @@ def test_documented_module_count_matches_the_static_dir() -> None:
     assert claimed, "ARCHITECTURE.md lost its frontend description"
     modules = list((ROOT / "src/qlens/viewer/static").glob("*.js"))
     assert NUMBER_WORDS[claimed.group(1).lower()] == len(modules)
+
+
+def test_documented_settings_match_the_dataclass() -> None:
+    """A settings table drifts the moment a field is renamed, and a
+    reader copying a stale key gets a QlensError from their own project."""
+    from qlens._config import Settings
+
+    section = USAGE[USAGE.index("## Settings"):]
+    section = section[: section.index("\n## ", 3)]
+    documented = set(re.findall(r"^\| `(\w+)` \|", section, flags=re.MULTILINE))
+    actual = {
+        name for name in Settings.__dataclass_fields__ if not name.startswith("_")
+    }
+    assert documented == actual
+
+
+def test_documented_test_methods_match_the_accepted_ones() -> None:
+    from qlens._config import _TESTS
+
+    documented = set(re.findall(r"^\| `(chi_square\w*|tvd|ks)` \|", USAGE, flags=re.MULTILINE))
+    assert documented == set(_TESTS)
+
+
+def test_documented_policies_match_the_accepted_ones() -> None:
+    from qlens._config import _POLICIES
+
+    section = USAGE[USAGE.index("`on_unreliable_statistics` | "):]
+    row = section[: section.index("|", len("`on_unreliable_statistics` | ") + 40)]
+    for policy in _POLICIES:
+        assert f"`{policy}`" in row, policy

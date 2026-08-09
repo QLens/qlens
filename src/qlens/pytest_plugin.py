@@ -19,6 +19,21 @@ def pytest_configure(config: Any) -> None:
     config.addinivalue_line(
         "markers", "qlens: marks a test as a qlens quantum circuit test"
     )
+    config.addinivalue_line(
+        "filterwarnings", "always::qlens.QlensStatisticsWarning"
+    )
+    # A project's [tool.qlens] settings apply to its test run without
+    # every conftest having to load them. An unreadable or invalid table
+    # is the project's own error and should surface at collection.
+    from qlens import _config
+
+    _config.load_project_settings(config.rootpath)
+
+
+@pytest.fixture
+def assert_state() -> Any:
+    """qlens.assert_state, as a fixture."""
+    return qlens.assert_state
 
 
 @pytest.fixture(autouse=True)

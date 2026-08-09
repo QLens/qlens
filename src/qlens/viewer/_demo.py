@@ -16,12 +16,14 @@ neither Qiskit nor PennyLane present.
 from __future__ import annotations
 
 import math
+import warnings
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from qlens._execution import ExecutionResult, Snapshot
+from qlens._reliability import QlensStatisticsWarning
 from qlens.conformance._reference import apply_gate
 
 # Fixed seeds everywhere: the demo is a teaching surface and a support
@@ -29,14 +31,6 @@ from qlens.conformance._reference import apply_gate
 # picture.
 _CIRCUIT_SEED = 20260809
 _SAMPLING_SEED = 4
-# The sparse run's outcome distribution is heavy-tailed: half its
-# occupied states carry less than one expected count at 1024 shots, where
-# a chi-square statistic is dominated by those cells and its p-value
-# swings across three orders of magnitude on the sampling seed alone. No
-# shot count fixes that — the smallest term is 3e-6 — so the sample run
-# is pinned to a seed that lands mid-distribution rather than at either
-# tail. See USAGE.md on choosing a test for sparse distributions.
-_SPARSE_SAMPLING_SEED = 1
 
 Program = list[tuple[str, tuple[int, ...], tuple[float, ...]]]
 
@@ -180,7 +174,7 @@ def _record_ansatz(qlens: Any, tracing: Any) -> None:
     result = _capture(_layered_ansatz(), num_qubits=6)
     result.traced_run = tracing.start_run(result, mode="layers")
     qlens.assert_distribution(
-        result, _true_distribution(result), seed=_SAMPLING_SEED
+        result, _true_distribution(result), test="chi_square_exact", seed=_SAMPLING_SEED
     )
     try:
         qlens.assert_distribution(
@@ -194,18 +188,37 @@ def _record_ansatz(qlens: Any, tracing: Any) -> None:
 
 
 def _record_sparse(qlens: Any, tracing: Any) -> None:
+    """The same output checked two ways.
+
+    Its distribution is heavy-tailed: half the occupied states expect
+    well under one count at 1024 shots. A distance check handles that; a
+    plain chi-square p-value does not, and recording both gives the
+    viewer a flagged assertion sitting next to a sound one on identical
+    data, which is the clearest way to show what the flag means.
+    """
     result = _capture(_sparse_subspace(), num_qubits=9)
+    expected = _true_distribution(result)
     result.traced_run = tracing.start_run(result, mode="layers")
     qlens.assert_distribution(
-        result, _true_distribution(result), seed=_SPARSE_SAMPLING_SEED
+        result, expected, test="tvd", tolerance=0.1, seed=_SAMPLING_SEED
     )
+    with warnings.catch_warnings():
+        # Recorded on purpose so the viewer has a flagged check to show.
+        warnings.simplefilter("ignore", QlensStatisticsWarning)
+        try:
+            qlens.assert_distribution(
+                result, expected, test="chi_square", seed=_SAMPLING_SEED
+            )
+        except AssertionError:
+            pass
     tracing.finish_traces()
 
 
 def _record_ghz(qlens: Any, tracing: Any) -> None:
+    """Small and evenly spread, so plain chi-square suits it."""
     result = _capture(_ghz_with_phase(), num_qubits=4)
     result.traced_run = tracing.start_run(result, mode="layers")
     qlens.assert_distribution(
-        result, _true_distribution(result), seed=_SAMPLING_SEED
+        result, _true_distribution(result), test="chi_square", seed=_SAMPLING_SEED
     )
     tracing.finish_traces()

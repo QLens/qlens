@@ -58,6 +58,9 @@ class ViewerState:
 def _run_summary(record: dict[str, Any]) -> dict[str, Any]:
     events = record.get("events") or []
     assertions = [e for e in events if e.get("kind") == "assertion"]
+    unreliable = sum(
+        1 for a in assertions if (a.get("reliability") or {}).get("reliable") is False
+    )
     meta = record.get("meta") or {}
     return {
         "trace_id": record.get("trace_id"),
@@ -71,8 +74,10 @@ def _run_summary(record: dict[str, Any]) -> dict[str, Any]:
         "num_qubits": meta.get("num_qubits"),
         "gate_count": meta.get("gate_count"),
         "capture_mode": meta.get("capture_mode"),
+        "settings": meta.get("settings") or {},
         "assertions_total": len(assertions),
         "assertions_failed": sum(1 for a in assertions if a.get("status") == "failed"),
+        "assertions_unreliable": unreliable,
     }
 
 
@@ -126,6 +131,8 @@ def _circuit_detail(record: dict[str, Any]) -> dict[str, Any]:
                     "source": event.get("source"),
                     "details": event.get("details") or {},
                     "expected": event.get("expected"),
+                    "method": event.get("method"),
+                    "reliability": event.get("reliability"),
                 }
             )
     detail = _run_summary(record)

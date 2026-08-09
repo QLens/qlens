@@ -10,7 +10,13 @@ Public API:
 
 from typing import Any
 
-from qlens._assertions import assert_distribution, assert_equivalent, assert_unitary
+from qlens._assertions import (
+    assert_distribution,
+    assert_equivalent,
+    assert_state,
+    assert_unitary,
+)
+from qlens._config import configure, settings
 from qlens._errors import (
     BackendNotFoundError,
     BackendNotInstalledError,
@@ -20,9 +26,10 @@ from qlens._errors import (
 )
 from qlens._execution import ExecutionResult, Snapshot
 from qlens._inspect import Inspector, StateDiff, inspect
+from qlens._reliability import QlensStatisticsWarning
 from qlens.backends import Backend, available_backends, detect_backend, get_backend
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "Backend",
@@ -32,18 +39,22 @@ __all__ = [
     "Inspector",
     "QlensAssertionError",
     "QlensError",
+    "QlensStatisticsWarning",
     "Snapshot",
     "StateDiff",
     "UnsupportedCircuitError",
     "__version__",
     "assert_distribution",
     "assert_equivalent",
+    "assert_state",
     "assert_unitary",
     "available_backends",
+    "configure",
     "detect_backend",
     "get_backend",
     "inspect",
     "run",
+    "settings",
 ]
 
 

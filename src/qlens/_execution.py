@@ -19,6 +19,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from qlens._errors import QlensError
+
 
 @dataclass(frozen=True)
 class Snapshot:
@@ -50,7 +52,7 @@ class ExecutionResult:
     num_qubits: int
     snapshots: list[Snapshot]
     _counts_fn: Callable[[int, int | None], dict[str, int]] = field(repr=False)
-    _counts_cache: dict[tuple[int, int | None], dict[str, int]] = field(
+    _counts_cache: dict[tuple[int, int | None, int | None], dict[str, int]] = field(
         default_factory=dict, repr=False
     )
     # Set by qlens.run(trace=...): the open TracedRun this execution
@@ -73,16 +75,54 @@ class ExecutionResult:
         """
         return self.snapshots[-1].statevector
 
-    def counts(self, shots: int = 1024, *, seed: int | None = None) -> dict[str, int]:
+    def counts(
+        self, shots: int = 1024, *, seed: int | None = None, at: int | None = None
+    ) -> dict[str, int]:
         """Measurement counts over all qubits in the computational basis.
 
         Keys are big-endian bitstrings (qubit 0 leftmost). ``seed`` makes
         sampling reproducible run to run, which keeps CI assertions at a
         given significance level from failing at that level's rate by
-        chance. Results are cached per (shots, seed); repeated calls with
-        the same values do not re-sample.
+        chance. Results are cached per (shots, seed, at); repeated calls
+        with the same values do not re-sample.
+
+        ``at`` measures the state captured after that gate position
+        instead of the circuit's final state, with the usual negative
+        indexing. It samples from the captured statevector rather than
+        through the backend, so a seeded ``counts(at=-1)`` need not match
+        a seeded ``counts()`` draw for draw even though both describe the
+        same distribution.
         """
-        key = (shots, seed)
+        key = (shots, seed, at)
         if key not in self._counts_cache:
-            self._counts_cache[key] = self._counts_fn(shots, seed)
+            self._counts_cache[key] = (
+                self._counts_fn(shots, seed)
+                if at is None
+                else self._sample_at(at, shots, seed)
+            )
         return self._counts_cache[key]
+
+    def _sample_at(self, position: int, shots: int, seed: int | None) -> dict[str, int]:
+        """Measurement counts for the state captured at one position.
+
+        Sampled here rather than through the backend: the backend's
+        counts function measures whatever the circuit ends on, and a
+        mid-circuit position has no such object to hand it. The captured
+        statevector is already canonical, so drawing from it directly
+        gives the same convention every backend converges on.
+        """
+        state = self.snapshots[position].statevector
+        probabilities = np.abs(state) ** 2
+        total = probabilities.sum()
+        if total <= 0:
+            raise QlensError(
+                f"the state captured at position {position} has zero norm; "
+                "nothing to sample"
+            )
+        rng = np.random.default_rng(seed)
+        drawn = rng.multinomial(shots, probabilities / total)
+        return {
+            format(index, f"0{self.num_qubits}b"): int(count)
+            for index, count in enumerate(drawn)
+            if count
+        }

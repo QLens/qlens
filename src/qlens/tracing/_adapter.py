@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from qlens import _config as config
 from qlens._layers import group_layers
 
 if TYPE_CHECKING:
@@ -71,6 +72,10 @@ def assertion_fields(
     error: BaseException | None,
     details: dict[str, float] | None,
     expected: Any,
+    *,
+    at: int | None = None,
+    method: str | None = None,
+    verdict: Any = None,
 ) -> dict[str, Any]:
     """Build the ``trace.event()`` kwargs for one assertion.
 
@@ -90,10 +95,18 @@ def assertion_fields(
 
     snapshots = getattr(result, "snapshots", None)
     if snapshots:
-        # Assertions run against the result as a whole, so they apply at
-        # the last captured position. Positions are per-gate indices, so
-        # this is where the viewer places the marker.
-        fields["position"] = int(snapshots[-1].position)
+        # Where the viewer puts the marker: the position the assertion
+        # named, or the end of the run when it named none. Negative
+        # indices resolve here so the recorded position is absolute.
+        index = -1 if at is None else at
+        try:
+            fields["position"] = int(snapshots[index].position)
+        except IndexError:
+            fields["position"] = int(snapshots[-1].position)
+    if method:
+        fields["method"] = method
+    if verdict is not None:
+        fields["reliability"] = verdict.as_event_field()
 
     source = _caller_location()
     if source is not None:
@@ -173,6 +186,9 @@ def record_run(
     trace.set_meta("num_qubits", result.num_qubits)
     trace.set_meta("gate_count", len(gate_snapshots))
     trace.set_meta("capture_mode", mode)
+    # So the viewer can report which settings a run used rather
+    # than assuming the defaults were in force.
+    trace.set_meta("settings", config.effective())
     if args:
         trace.set_meta("circuit_args", [float(a) for a in args])
 

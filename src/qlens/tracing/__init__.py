@@ -92,6 +92,9 @@ def record_assertion(
     *,
     details: dict[str, float] | None = None,
     expected: Any = None,
+    at: int | None = None,
+    method: str | None = None,
+    verdict: Any = None,
 ) -> None:
     """Append an assertion event to the run that produced ``result``,
     or to the ambient TraceAct trace when there is one. No-op otherwise;
@@ -99,7 +102,10 @@ def record_assertion(
     try:
         from qlens.tracing._adapter import assertion_fields
 
-        fields = assertion_fields(result, name, target, error, details, expected)
+        fields = assertion_fields(
+            result, name, target, error, details, expected,
+            at=at, method=method, verdict=verdict,
+        )
         run = getattr(result, "traced_run", None)
         if run is None and len(settings._open_runs) == 1:
             # assert_unitary and assert_equivalent take a circuit, not a

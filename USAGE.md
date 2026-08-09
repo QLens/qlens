@@ -97,7 +97,7 @@ All assertion failures raise `QlensAssertionError`, a subclass of `AssertionErro
 ### assert_distribution
 
 ```python
-qlens.assert_distribution(result, expected, tolerance=0.05, test="chi_square", shots=1024)
+qlens.assert_distribution(result, expected, test="chi_square", tolerance=0.05, at=None)
 ```
 
 Validates sampled output against an expected distribution.
@@ -105,16 +105,59 @@ Validates sampled output against an expected distribution.
 | Parameter | Meaning |
 |---|---|
 | `result` | An `ExecutionResult`, a raw `{bitstring: count}` mapping, or (KS only) an array of continuous samples. |
-| `expected` | `{bitstring: probability}` for chi-square (relative weights accepted). For KS: an array of reference samples, or a scipy distribution name with `reference_args`. |
-| `tolerance` | Significance level. The assertion passes when the p-value is at or above it. |
-| `test` | `"chi_square"` (default) or `"ks"`. |
-| `seed` | Seeds the sampling when `result` is an `ExecutionResult`. Without it, a correct circuit fails at rate `tolerance` by chance; seed CI tests. |
+| `expected` | `{bitstring: probability}` for the discrete tests (relative weights accepted). For KS: an array of reference samples, or a scipy distribution name with `reference_args`. |
+| `test` | Which comparison to make. Defaults to the project setting, itself `chi_square`. |
+| `tolerance` | Whatever the chosen test uses: a significance level for the p-value tests, a distance for `tvd`. Defaults to 0.05 either way. |
+| `at` | Measure the state captured after this gate position instead of the circuit's final state. Negative indices count from the end. |
+| `shots` | How many measurements to sample. Default 1024. |
+| `seed` | Seeds the sampling. Without it, a correct circuit fails at rate `tolerance` by chance; seed CI tests. |
 
-**Choosing the test.** Use `chi_square` for discrete measurement outcomes, which is the normal case: comparing bitstring counts against expected probabilities. Use `ks` for continuous-valued samples, such as a sequence of expectation-value estimates. Passing counts to `ks` or samples to `chi_square` raises `QlensError` rather than silently computing the wrong statistic.
+**Choosing a test.**
 
-**Sparse and heavy-tailed distributions.** Chi-square assumes every category has a reasonable expected count. A circuit whose output concentrates on a few states leaves the rest with expected counts below one, and those cells then dominate the statistic: a single unexpected shot in a state with expected count 0.001 contributes ~1000. The p-value stops being meaningful and swings by orders of magnitude on the sampling seed alone, in both directions — such a test both flakes and fails to catch real errors. When the smallest probability you care about is far below `1/shots`, either raise `shots` until it isn't, or assert on the states that carry the mass by comparing a restricted counts mapping rather than the full distribution.
+| `test=` | What it answers | Use when |
+|---|---|---|
+| `chi_square` | "How surprising would this result be if the circuit were correct?" Reports a p-value. | Every outcome is expected several times over |
+| `chi_square_exact` | The same question, with the p-value simulated from `resamples` correct runs instead of read off a formula | Some outcomes are rare, which is most quantum output |
+| `tvd` | "How far apart are these two distributions?" Reports a distance in [0, 1]. | You want a threshold you can picture, or the output is heavy-tailed |
+| `ks` | Kolmogorov-Smirnov, for continuous-valued samples | Comparing expectation-value estimates rather than bitstring counts |
 
-**Reading the tolerance.** `tolerance` is a significance level, not a distance. `tolerance=0.05` means: reject when the observed counts would occur less than 5% of the time under the expected distribution. Raising it makes the test stricter. A correct circuit fails at rate `tolerance` by chance; a suite of unseeded 0.05-level assertions flakes at 5% per assertion. Pass `seed` to make sampling reproducible; the seed reproduces within one backend and version, not across them.
+Passing counts to `ks` or samples to a discrete test raises `QlensError` rather than silently computing the wrong statistic.
+
+**When a test does not suit the data.** Chi-square's p-value assumes every outcome is expected roughly five or more times. Quantum output routinely concentrates on a few states, leaving the rest expected far below once, and the p-value then swings by orders of magnitude on the sampling seed alone: such a check both flakes and misses real errors.
+
+Qlens never changes `test` on your behalf. It detects the condition, reports it, and names what would settle the question:
+
+```
+QlensStatisticsWarning: assert_distribution: chi-square assumes about 5 or more
+expected counts per outcome. 10 of 16 outcomes here expect fewer (smallest:
+0.00349), so this p-value can be wrong in either direction.
+Instead, use test="chi_square_exact" for a simulated p-value that holds at any
+count; or test="tvd" to compare by distance instead of significance; or shots at
+least 1433 to populate every outcome.
+```
+
+`on_unreliable_statistics` decides what that does: `warn` (the default) raises `qlens.QlensStatisticsWarning`, `error` refuses the result, `ignore` says nothing. The verdict records onto the trace under every policy, so the viewer flags the check either way.
+
+`tvd` gets the same treatment from the other direction: sampling never reproduces a distribution exactly, so a tolerance finer than the sampling noise at your shot count rejects correct circuits, and that is reported too.
+
+**Reading the tolerance.** For the p-value tests, `tolerance` is a significance level, not a distance. `tolerance=0.05` means: reject when the observed counts would occur less than 5% of the time under the expected distribution. Raising it makes the test stricter. For `tvd`, `tolerance` is the distance itself: 0.02 allows the two distributions to disagree about 2% of their mass.
+
+### assert_state
+
+```python
+qlens.assert_state(result, expected, fidelity=0.99, at=None)
+```
+
+Asserts the captured statevector matches an expected one, compared by fidelity |⟨expected|actual⟩|² and failing below `fidelity`.
+
+Global phase is ignored: two states differing only by an overall phase factor are the same physical state and score 1.0. Relative phase is not ignored, because it is physical and decides how amplitudes interfere later.
+
+```python
+result = qlens.run(circuit, trace=True)
+qlens.assert_state(result, [SQ2, 0, 0, SQ2], at=41)   # entangled by here
+```
+
+`at` picks the gate position and is where the viewer marks the assertion on the timeline.
 
 ### assert_unitary
 
@@ -131,6 +174,27 @@ qlens.assert_equivalent(circuit_a, circuit_b, atol=1e-8, args=())
 ```
 
 Asserts two circuits compute the same unitary, ignoring global phase. Different gate decompositions of the same operation pass; circuits differing by a relative phase fail. Both circuits must come from the same framework.
+
+## Settings
+
+Project defaults live in `pyproject.toml`, so a choice is made once rather than repeated on every call:
+
+```toml
+[tool.qlens]
+distribution_test = "tvd"
+on_unreliable_statistics = "warn"
+```
+
+| Setting | Values | Default | Meaning |
+|---|---|---|---|
+| `distribution_test` | `chi_square`, `chi_square_exact`, `tvd`, `ks` | `chi_square` | Which test `assert_distribution` runs when a call does not name one |
+| `on_unreliable_statistics` | `warn`, `error`, `ignore` | `warn` | What happens when a test's assumptions do not hold for the data |
+| `min_expected_count` | number | `5.0` | Expected count below which a chi-square cell counts as too sparse |
+| `resamples` | integer ≥ 100 | `10000` | Samples drawn for a simulated p-value and for the TVD noise floor |
+
+The pytest plugin loads them at collection, so a test run picks them up with no conftest wiring. `qlens.configure(**)` sets the same fields at runtime, and any `assert_*` argument overrides both. An unknown key or an invalid value raises `QlensError` naming the file, rather than being ignored.
+
+The settings in force are recorded onto every traced run, so the viewer reports which ones a run used instead of assuming the defaults.
 
 ## Pytest plugin
 
@@ -271,6 +335,8 @@ Each assertion event carries what the viewer needs to make it clickable:
 | `source` | `file:line` of the call, skipping qlens's own frames and the standard library. Absent when no such frame exists. |
 | `details` | The measured numbers: `statistic`, `p_value`, `tolerance`, `shots` for `assert_distribution`; `deviation` and `atol` for `assert_unitary`. Values that are not finite (an infinite chi-square, when an outcome the expectation calls impossible was observed) record as `null`. |
 | `expected` | The reference distribution, normalized to probabilities, for the viewer to ghost behind the observed bars. Omitted above 256 entries, which would exceed TraceAct's payload budget. |
+| `method` | Which test ran: `chi_square`, `chi_square_exact`, `tvd`, `ks`, or `fidelity` for `assert_state`. |
+| `reliability` | Whether the method's assumptions held, and if not, a plain-language summary, the numbers behind it, and the alternatives. Recorded whatever `on_unreliable_statistics` is set to. |
 
 `assert_unitary` and `assert_equivalent` take a circuit, not a result, so they carry no link to the run under test. With exactly one traced run open they attach to it; with several they go unattributed rather than guess.
 
@@ -308,7 +374,7 @@ Opens a local web viewer over a trace source (a TraceAct `.jsonl` file, a folder
 | Timeline | The amplitude waterfall: one column per gate position, one row per basis state, hue for phase and brightness for magnitude. Below it the circuit's wire strip on the same x axis, then the transport. |
 | State | The statevector at the cursor as probability bars, with the expected distribution from the nearest `assert_distribution` ghosted behind it, and the largest divergences listed. |
 | Diff | Two pinned positions side by side with fidelity \|⟨ψ_A\|ψ_B⟩\|², L2 distance, and the per-basis-state probability delta. |
-| Assertions | Every recorded check with its position, source location, measured numbers, and pass/fail, plus a coverage strip showing where in the run the checks fall. |
+| Assertions | Every recorded check with its position, source location, measured numbers, and pass/fail, plus a coverage strip showing where in the run the checks fall. A check whose statistics do not support its own verdict carries an `UNRELIABLE` badge; opening the row explains why and offers the alternatives as copyable lines. |
 
 | Key | Action |
 |---|---|
@@ -317,6 +383,10 @@ Opens a local web viewer over a trace source (a TraceAct `.jsonl` file, a folder
 | `shift`+`←` `→` | Jump to the previous / next assertion |
 | `home` `end` | First / last position |
 | `1`–`4` | Switch tab |
+
+**Guide** in the top bar opens a plain-language reading guide, written for someone new to quantum computing: what the waterfall shows, what phase is and why it is drawn as colour, what a position is, and how each test method decides whether a check held. It stays reachable at all times, and the ⓘ on a panel opens it at the relevant topic.
+
+**Settings** (the gear) holds viewer preferences, the test settings the current run used, and **Reset dismissed notices**, which brings back the guided tour and anything else clicked away.
 
 Dragging anywhere on the waterfall, the wire strip, or the scrubber moves the cursor. **Collapse near-zero rows** drops basis states whose amplitude never exceeds a threshold anywhere in the run, which is what makes a 10-qubit run legible; a dashed rule marks where states were skipped.
 
@@ -328,7 +398,7 @@ For anything that wants the data directly:
 |---|---|
 | `GET /api/health` | Version and source |
 | `GET /api/circuits` | Run summaries, newest first, with assertion pass/fail counts |
-| `GET /api/circuit?trace_id=` | One run: layers, gates, qstate refs, assertion records |
+| `GET /api/circuit?trace_id=` | One run: layers, gates, qstate refs, assertion records with their method and reliability verdict |
 | `GET /api/state?trace_id=&position=` | Amplitudes at a captured position (`-1` = final) |
 | `GET /api/waterfall?trace_id=` | Every position at once, reduced to display resolution |
 | `GET /api/stream` | Server-Sent Events: run summaries as they land or change |

@@ -9,17 +9,30 @@ numbers in the message.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 
+from qlens import _config as config
+from qlens import _reliability as reliability
 from qlens._errors import QlensAssertionError, QlensError
 from qlens._execution import ExecutionResult
-from qlens._stats import chi_square_test, ks_test, max_unitarity_deviation
+from qlens._stats import (
+    chi_square_exact_test,
+    chi_square_test,
+    ks_test,
+    max_unitarity_deviation,
+    sparse_cells,
+    state_fidelity,
+    total_variation_distance,
+    tvd_noise_floor,
+)
 from qlens.backends._registry import detect_backend
 
 DEFAULT_ATOL = 1e-8
 DEFAULT_SHOTS = 1024
+DEFAULT_TOLERANCE = 0.05
+DEFAULT_FIDELITY = 0.99
 
 
 def assert_unitary(
@@ -74,10 +87,11 @@ def assert_distribution(
     result: ExecutionResult | Mapping[str, int] | Any,
     expected: Mapping[str, float] | str,
     *,
-    tolerance: float = 0.05,
-    test: Literal["chi_square", "ks"] = "chi_square",
+    tolerance: float | None = None,
+    test: str | None = None,
     shots: int = DEFAULT_SHOTS,
     seed: int | None = None,
+    at: int | None = None,
     reference_args: tuple[float, ...] = (),
 ) -> None:
     """Assert sampled output matches an expected distribution.
@@ -87,74 +101,207 @@ def assert_distribution(
     samples.
 
     ``expected``: a mapping of big-endian bitstrings to probabilities (or
-    relative weights) for the chi-square test; for the KS test, either an
+    relative weights) for the discrete tests; for the KS test, either an
     array of reference samples or a scipy distribution name (with
     ``reference_args``).
 
-    ``tolerance`` is the significance level: the assertion passes when
-    the test's p-value is >= tolerance, i.e. the data gives no grounds at
-    that level to reject "output matches expected." Smaller tolerance =
-    laxer test. A correct circuit fails at rate ``tolerance`` by chance;
-    pass ``seed`` for reproducible sampling in CI. See USAGE.md for
-    choosing between chi_square and ks.
+    ``at``: measure the state captured after that gate position instead
+    of the circuit's final state. The assertion then marks that position
+    in the viewer's timeline rather than the end of the run.
+
+    ``test`` picks how the comparison is made, defaulting to the project
+    setting (see qlens.configure):
+
+    ==================  =======================================================
+    chi_square          Pearson's test. Its p-value assumes every outcome is
+                        expected several times over.
+    chi_square_exact    The same statistic with the p-value simulated rather
+                        than looked up, which holds however rare an outcome is.
+    tvd                 Total variation distance. ``tolerance`` becomes a
+                        distance in [0, 1] rather than a significance level.
+    ks                  Kolmogorov-Smirnov, for continuous samples.
+    ==================  =======================================================
+
+    ``tolerance`` means whichever the chosen test uses, and defaults
+    accordingly: a significance level of 0.05 for the p-value tests,
+    a distance of 0.05 for tvd. Qlens never changes ``test`` on your
+    behalf; when the chosen one's assumptions do not hold for the data,
+    it says so through ``on_unreliable_statistics``.
     """
-    if not 0.0 < tolerance < 1.0:
+    method = test if test is not None else config.settings.distribution_test
+    if method not in ("chi_square", "chi_square_exact", "tvd", "ks"):
+        raise QlensError(
+            f"unknown test {method!r}; use chi_square, chi_square_exact, tvd, or ks"
+        )
+    if tolerance is None:
+        tolerance = DEFAULT_TOLERANCE
+    if method == "tvd":
+        if not 0.0 <= tolerance <= 1.0:
+            raise QlensError(
+                f"tvd tolerance is a distance in [0, 1], got {tolerance}"
+            )
+    elif not 0.0 < tolerance < 1.0:
         raise QlensError(f"tolerance must be in (0, 1), got {tolerance}")
 
-    reference: Mapping[str, float] | None = None
-    if test == "chi_square":
-        if not isinstance(expected, Mapping):
-            raise QlensError(
-                "chi_square expects a mapping of bitstrings to probabilities; "
-                "for continuous references use test='ks'"
-            )
-        counts = _as_counts(result, shots, seed)
-        statistic, pvalue = chi_square_test(counts, expected)
-        reference = expected
-    elif test == "ks":
-        if isinstance(result, (ExecutionResult, Mapping)):
-            raise QlensError(
-                "ks compares continuous samples; pass an array of samples as "
-                "result (for counts use test='chi_square')"
-            )
-        samples = np.asarray(result, dtype=np.float64)
-        if isinstance(expected, Mapping):
-            raise QlensError(
-                "ks expects an array of reference samples or a scipy "
-                "distribution name as expected"
-            )
-        statistic, pvalue = ks_test(samples, expected, reference_args)
-    else:
-        raise QlensError(f"unknown test {test!r}; use 'chi_square' or 'ks'")
+    if method == "ks":
+        _assert_ks(result, expected, tolerance, reference_args)
+        return
+    _assert_discrete(result, expected, method, tolerance, shots, seed, at)
 
-    details = {
-        "statistic": float(statistic),
-        "p_value": float(pvalue),
-        "tolerance": float(tolerance),
-        "shots": float(shots),
-    }
-    if pvalue < tolerance:
-        error = QlensAssertionError(
-            f"distribution mismatch: {test} p-value {pvalue:.4g} < "
+
+def _assert_discrete(
+    result: Any,
+    expected: Mapping[str, float] | str,
+    method: str,
+    tolerance: float,
+    shots: int,
+    seed: int | None,
+    at: int | None,
+) -> None:
+    if not isinstance(expected, Mapping):
+        raise QlensError(
+            f"{method} expects a mapping of bitstrings to probabilities; "
+            "for continuous references use test='ks'"
+        )
+    counts = _as_counts(result, shots, seed, at)
+    resamples = config.settings.resamples
+
+    if method == "tvd":
+        distance = total_variation_distance(counts, expected)
+        floor = tvd_noise_floor(expected, sum(counts.values()), resamples=resamples, seed=seed)
+        verdict = reliability.tolerance_below_noise(tolerance, floor, sum(counts.values()))
+        passed = distance <= tolerance
+        details = {
+            "distance": distance,
+            "tolerance": tolerance,
+            "noise_floor": floor,
+            "shots": float(sum(counts.values())),
+        }
+        message = (
+            f"distribution mismatch: total variation distance {distance:.4g} > "
+            f"tolerance {tolerance:g}"
+        )
+    else:
+        if method == "chi_square_exact":
+            statistic, pvalue = chi_square_exact_test(
+                counts, expected, resamples=resamples, seed=seed
+            )
+            verdict = reliability.RELIABLE
+        else:
+            statistic, pvalue = chi_square_test(counts, expected)
+            below, live, smallest = sparse_cells(
+                counts, expected, config.settings.min_expected_count
+            )
+            verdict = reliability.sparse_chi_square(
+                below, live, smallest, config.settings.min_expected_count
+            )
+        passed = pvalue >= tolerance
+        details = {
+            "statistic": statistic,
+            "p_value": pvalue,
+            "tolerance": tolerance,
+            "shots": float(sum(counts.values())),
+        }
+        message = (
+            f"distribution mismatch: {method} p-value {pvalue:.4g} < "
             f"significance level {tolerance}"
         )
-        _record(
-            result,
-            "assert_distribution",
-            "distribution",
-            error,
-            details=details,
-            expected=reference,
-        )
-        raise error
-    _record(
-        result,
-        "assert_distribution",
-        "distribution",
-        None,
-        details=details,
-        expected=reference,
+
+    reliability.report(verdict, config.settings.on_unreliable_statistics, "assert_distribution")
+    _finish(
+        result, "assert_distribution", "distribution", message if not passed else None,
+        details=details, expected=expected, at=at, method=method, verdict=verdict,
     )
+
+
+def _assert_ks(
+    result: Any,
+    expected: Mapping[str, float] | str,
+    tolerance: float,
+    reference_args: tuple[float, ...],
+) -> None:
+    if isinstance(result, (ExecutionResult, Mapping)):
+        raise QlensError(
+            "ks compares continuous samples; pass an array of samples as "
+            "result (for counts use a discrete test)"
+        )
+    if isinstance(expected, Mapping):
+        raise QlensError(
+            "ks expects an array of reference samples or a scipy "
+            "distribution name as expected"
+        )
+    samples = np.asarray(result, dtype=np.float64)
+    statistic, pvalue = ks_test(samples, expected, reference_args)
+    details = {"statistic": statistic, "p_value": pvalue, "tolerance": tolerance}
+    message = (
+        f"distribution mismatch: ks p-value {pvalue:.4g} < "
+        f"significance level {tolerance}"
+    )
+    _finish(
+        result, "assert_distribution", "distribution",
+        message if pvalue < tolerance else None,
+        details=details, expected=None, at=None, method="ks",
+        verdict=reliability.RELIABLE,
+    )
+
+
+def assert_state(
+    result: ExecutionResult,
+    expected: Any,
+    *,
+    fidelity: float = DEFAULT_FIDELITY,
+    at: int | None = None,
+) -> None:
+    """Assert the captured statevector matches an expected one.
+
+    Compared by fidelity |<expected|actual>|^2, which ignores global
+    phase: two states differing only by an overall phase factor are the
+    same physical state and score 1.0.
+
+    ``at`` picks the gate position to compare, defaulting to the end of
+    the run, and is where the viewer marks the assertion.
+    """
+    if not 0.0 < fidelity <= 1.0:
+        raise QlensError(f"fidelity must be in (0, 1], got {fidelity}")
+    actual = result.statevector_at(at if at is not None else -1)
+    reference = np.asarray(expected, dtype=np.complex128)
+    if reference.shape != actual.shape:
+        raise QlensError(
+            f"expected state has {reference.size} amplitudes but the circuit "
+            f"has {actual.size}; both must cover the same qubit count"
+        )
+    measured = state_fidelity(reference, actual)
+    details = {"fidelity": measured, "required": float(fidelity)}
+    message = (
+        f"statevector mismatch: fidelity {measured:.4f} < required {fidelity:.4f}"
+    )
+    _finish(
+        result, "assert_state", "state", message if measured < fidelity else None,
+        details=details, expected=None, at=at, method="fidelity",
+        verdict=reliability.RELIABLE,
+    )
+
+
+def _finish(
+    result: Any,
+    name: str,
+    target: str,
+    failure: str | None,
+    *,
+    details: dict[str, float],
+    expected: Mapping[str, float] | None,
+    at: int | None,
+    method: str,
+    verdict: reliability.Reliability,
+) -> None:
+    """Record the assertion, then raise if it failed."""
+    error = QlensAssertionError(failure) if failure is not None else None
+    _record(
+        result, name, target, error,
+        details=details, expected=expected, at=at, method=method, verdict=verdict,
+    )
+    if error is not None:
+        raise error
 
 
 def _record(
@@ -165,6 +312,9 @@ def _record(
     *,
     details: dict[str, float] | None = None,
     expected: Mapping[str, float] | None = None,
+    at: int | None = None,
+    method: str | None = None,
+    verdict: Any = None,
 ) -> None:
     """Append an assertion event to the result's open trace or the
     ambient TraceAct trace. Never raises; no-op when nothing is tracing.
@@ -176,15 +326,24 @@ def _record(
     from qlens import tracing
 
     tracing.record_assertion(
-        result, name, target, error, details=details, expected=expected
+        result, name, target, error,
+        details=details, expected=expected, at=at, method=method, verdict=verdict,
     )
 
 
 def _as_counts(
-    result: ExecutionResult | Mapping[str, int] | Any, shots: int, seed: int | None
+    result: ExecutionResult | Mapping[str, int] | Any,
+    shots: int,
+    seed: int | None,
+    at: int | None = None,
 ) -> dict[str, int]:
     if isinstance(result, ExecutionResult):
-        return result.counts(shots, seed=seed)
+        return result.counts(shots, seed=seed, at=at)
+    if at is not None:
+        raise QlensError(
+            "at= needs an ExecutionResult; a raw counts mapping has no "
+            "positions to measure at"
+        )
     if isinstance(result, Mapping):
         return dict(result)
     raise QlensError(
