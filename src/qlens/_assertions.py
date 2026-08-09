@@ -15,7 +15,7 @@ import numpy as np
 
 from qlens._errors import QlensAssertionError, QlensError
 from qlens._execution import ExecutionResult
-from qlens._stats import chi_square_pvalue, ks_pvalue, max_unitarity_deviation
+from qlens._stats import chi_square_test, ks_test, max_unitarity_deviation
 from qlens.backends._registry import detect_backend
 
 DEFAULT_ATOL = 1e-8
@@ -29,14 +29,15 @@ def assert_unitary(
     backend = detect_backend(circuit)
     matrix = backend.operator_matrix(circuit, args=args)
     deviation = max_unitarity_deviation(matrix)
+    details = {"deviation": float(deviation), "atol": float(atol)}
     if deviation > atol:
         error = QlensAssertionError(
             f"circuit is not unitary: max deviation of U†U from identity is "
             f"{deviation:.3e} (atol={atol:.1e})"
         )
-        _record(None, "assert_unitary", "unitarity", error)
+        _record(None, "assert_unitary", "unitarity", error, details=details)
         raise error
-    _record(None, "assert_unitary", "unitarity", None)
+    _record(None, "assert_unitary", "unitarity", None, details=details)
 
 
 def assert_equivalent(
@@ -58,14 +59,15 @@ def assert_equivalent(
             f"cannot compare circuits across frameworks ({backend_a.name} vs "
             f"{backend_b.name}); build both circuits in one framework"
         )
+    details = {"atol": float(atol)}
     if not backend_a.equivalent(circuit_a, circuit_b, atol=atol, args=args):
         error = QlensAssertionError(
             "circuits are not equivalent: their unitaries differ beyond "
             f"atol={atol:.1e} (up to global phase)"
         )
-        _record(None, "assert_equivalent", "equivalence", error)
+        _record(None, "assert_equivalent", "equivalence", error, details=details)
         raise error
-    _record(None, "assert_equivalent", "equivalence", None)
+    _record(None, "assert_equivalent", "equivalence", None, details=details)
 
 
 def assert_distribution(
@@ -99,6 +101,7 @@ def assert_distribution(
     if not 0.0 < tolerance < 1.0:
         raise QlensError(f"tolerance must be in (0, 1), got {tolerance}")
 
+    reference: Mapping[str, float] | None = None
     if test == "chi_square":
         if not isinstance(expected, Mapping):
             raise QlensError(
@@ -106,7 +109,8 @@ def assert_distribution(
                 "for continuous references use test='ks'"
             )
         counts = _as_counts(result, shots, seed)
-        pvalue = chi_square_pvalue(counts, expected)
+        statistic, pvalue = chi_square_test(counts, expected)
+        reference = expected
     elif test == "ks":
         if isinstance(result, (ExecutionResult, Mapping)):
             raise QlensError(
@@ -119,26 +123,61 @@ def assert_distribution(
                 "ks expects an array of reference samples or a scipy "
                 "distribution name as expected"
             )
-        pvalue = ks_pvalue(samples, expected, reference_args)
+        statistic, pvalue = ks_test(samples, expected, reference_args)
     else:
         raise QlensError(f"unknown test {test!r}; use 'chi_square' or 'ks'")
 
+    details = {
+        "statistic": float(statistic),
+        "p_value": float(pvalue),
+        "tolerance": float(tolerance),
+        "shots": float(shots),
+    }
     if pvalue < tolerance:
         error = QlensAssertionError(
             f"distribution mismatch: {test} p-value {pvalue:.4g} < "
             f"significance level {tolerance}"
         )
-        _record(result, "assert_distribution", "distribution", error)
+        _record(
+            result,
+            "assert_distribution",
+            "distribution",
+            error,
+            details=details,
+            expected=reference,
+        )
         raise error
-    _record(result, "assert_distribution", "distribution", None)
+    _record(
+        result,
+        "assert_distribution",
+        "distribution",
+        None,
+        details=details,
+        expected=reference,
+    )
 
 
-def _record(result: Any, name: str, target: str, error: BaseException | None) -> None:
+def _record(
+    result: Any,
+    name: str,
+    target: str,
+    error: BaseException | None,
+    *,
+    details: dict[str, float] | None = None,
+    expected: Mapping[str, float] | None = None,
+) -> None:
     """Append an assertion event to the result's open trace or the
-    ambient TraceAct trace. Never raises; no-op when nothing is tracing."""
+    ambient TraceAct trace. Never raises; no-op when nothing is tracing.
+
+    ``details`` carries the measured numbers the viewer's assertion table
+    shows; ``expected`` the reference distribution it ghosts behind the
+    observed bars.
+    """
     from qlens import tracing
 
-    tracing.record_assertion(result, name, target, error)
+    tracing.record_assertion(
+        result, name, target, error, details=details, expected=expected
+    )
 
 
 def _as_counts(

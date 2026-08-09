@@ -81,10 +81,10 @@
    └────────┬─────────┘                    │
             │ spools arrays        ┌───────▼─────────┐     ┌─────────────────┐
    ┌────────▼─────────┐          │  qlens view        │────▶│ browser page     │
-   │ .npz sidecars      │◀────────│  (stdlib server:   │     │ (static files,   │
-   │ (<state_dir>/       │  reads  │   JSON API + SSE)  │     │  designed UI)    │
-   │  <trace_id>.npz)     │          └───────────────────┘     └─────────────────┘
-   └────────┬─────────┘
+   │ .npz sidecars      │◀────────│  (stdlib server:   │     │ (canvas surfaces,│
+   │ (<state_dir>/       │  reads  │   JSON API + SSE,  │     │  ES modules,     │
+   │  <trace_id>.npz)     │          │   grid reduction)  │     │  no build step)  │
+   └────────┬─────────┘          └───────────────────┘     └─────────────────┘
             │
    ┌────────▼─────────┐
    │ Inspector           │   qlens.inspect(result)  — live results
@@ -96,6 +96,12 @@
 
 **Sidecar spool (`tracing/_spool.py`).** Amplitude arrays never enter trace records (TraceAct's payload budget would truncate them); every snapshot spools to a compressed `.npz` keyed by gate position, and events carry `statevector_ref` strings. `load_snapshots()` rebuilds a full snapshot list from a stored record plus sidecar.
 
-**Viewer server (`viewer/`).** Stdlib `ThreadingHTTPServer` over a TraceAct source, read through `TraceLog` (which handles JSONL, folders, SQLite, and in-flight stub dedup). JSON endpoints for run lists, circuit structure, per-position amplitudes, and an SSE stream that emits run summaries as they land or change. Static frontend is three files, no build step; the current page is a functional placeholder the designed UI replaces.
+**Viewer server (`viewer/server.py`).** Stdlib `ThreadingHTTPServer` over a TraceAct source, read through `TraceLog` (which handles JSONL, folders, SQLite, and in-flight stub dedup). JSON endpoints for run lists, circuit structure, per-position amplitudes, the waterfall grid, and an SSE stream that emits run summaries as they land or change.
+
+**Waterfall reduction (`viewer/_waterfall.py`).** The division of labour between server and browser. A 10-qubit, 400-gate run is 400k complex amplitudes; sending that as JSON is not an option, so the reduction runs here in numpy and the payload is two base64 `uint8` planes at display resolution. Magnitude is normalized against a high percentile rather than the maximum (position 0 is a basis state at magnitude 1 and would otherwise set the scale for the whole run) and pre-warped before quantizing, since a linear 8-bit ramp puts a real amplitude field almost entirely in the bottom bucket. Row banding keeps each band's largest-magnitude row, carrying that row's phase with it. Unpacked grids memoise on `(path, mtime)`, which is what makes scrubbing and threshold changes cheap; `/api/state` reads exact amplitudes from the same cache.
+
+**Viewer frontend (`viewer/static/`).** Four ES modules served as-is: no bundler, no framework, no external requests. `draw.js` owns the canvas surfaces (waterfall, probability bars, delta bars) and the OKLCH-to-sRGB colour table the design tokens are authored in; `ui.js` is element construction and the small components; `app.js` is state, layout, and fetching. Canvas rather than SVG at every size, because the waterfall's whole point is staying readable at full resolution and a 400k-cell field is not 400k DOM nodes.
+
+**Sample runs (`viewer/_demo.py`).** `qlens view --demo` generates sample runs on the bundled reference simulator and records them through the ordinary path, so the demo needs no provider framework installed and shows exactly what a real test produces.
 
 **Inspector (`_inspect.py`).** A cursor over captured snapshots: stepping is list indexing, never re-execution. Works identically over a live `ExecutionResult` and a stored trace record resolved through the sidecar.

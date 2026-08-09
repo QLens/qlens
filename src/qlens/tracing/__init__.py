@@ -85,38 +85,37 @@ def start_run(
 
 
 def record_assertion(
-    result: Any, name: str, target: str, error: BaseException | None
+    result: Any,
+    name: str,
+    target: str,
+    error: BaseException | None,
+    *,
+    details: dict[str, float] | None = None,
+    expected: Any = None,
 ) -> None:
     """Append an assertion event to the run that produced ``result``,
     or to the ambient TraceAct trace when there is one. No-op otherwise;
     never raises."""
     try:
+        from qlens.tracing._adapter import assertion_fields
+
+        fields = assertion_fields(result, name, target, error, details, expected)
         run = getattr(result, "traced_run", None)
+        if run is None and len(settings._open_runs) == 1:
+            # assert_unitary and assert_equivalent take a circuit, not a
+            # result, so they carry no link to the run under test. With
+            # exactly one run open the attribution is unambiguous; with
+            # several it would be a guess, so those go unattributed.
+            run = settings._open_runs[0]
         if run is not None:
-            run.record_assertion(name, target, error)
+            run.record_assertion(error, fields)
             return
         from traceact.context import get_active_trace
 
         trace = get_active_trace()
         if trace is None:
             return
-        if error is not None:
-            trace.event(
-                kind="assertion",
-                operation="check",
-                target=target,
-                status="failed",
-                error={"type": type(error).__name__, "message": str(error)},
-                assertion=name,
-            )
-        else:
-            trace.event(
-                kind="assertion",
-                operation="check",
-                target=target,
-                status="completed",
-                assertion=name,
-            )
+        trace.event(**fields)
     except Exception:
         return
 

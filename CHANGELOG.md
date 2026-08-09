@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0 — 2026-08-09
+
+The viewer UI, and the data it needed.
+
+### Added
+
+- The viewer frontend: four views over a recorded run — Timeline (amplitude waterfall over every gate position, with the circuit's wire strip on the same axis and a transport), State (statevector at the cursor with the expected distribution overlaid), Diff (two pinned positions with fidelity and per-basis-state deltas), and Assertions (every check with its metrics, source, and a coverage strip). Keyboard transport, click-to-jump assertion markers, and a collapse control that drops basis states below a threshold. Plain ES modules and canvas; no build step and no external requests.
+- `qlens view --demo` generates three sample runs and opens on those, so the viewer has something to show without a project wired up. They execute on the bundled reference simulator and record through the ordinary path, so no provider framework is needed: a dense variational ansatz with a failing check, a sparse-subspace circuit where the collapse control has something to drop, and a GHZ state with phase winding.
+- `GET /api/waterfall?trace_id=` returns every captured position at display resolution as two base64 `uint8` planes (magnitude, phase), with `max_rows` and `threshold` parameters. Magnitude normalizes against a high percentile of the field rather than its maximum.
+- Assertion events carry `position`, `source` (`file:line` of the call), `details` (the measured statistic, p-value, tolerance, shots, deviation, atol), and `expected` (the reference distribution, normalized). Non-finite metrics record as `null`.
+- `assert_unitary` and `assert_equivalent` attach to the open traced run when exactly one is open, so checks made against a circuit rather than a result still appear on the run's timeline.
+- `launch.sh`, `launch.command`, and `launch.bat`: create or reuse an environment and start the viewer, falling back to `--demo` when given no source.
+
+### Changed
+
+- `qlens view` takes its source argument optionally; without a source or `--demo` it explains which to pass.
+- `GET /api/state` reads through the same in-process grid cache as the waterfall, so scrubbing does not decompress a sidecar per request.
+
 ## 0.2.0 — 2026-08-08
 
 Phase 2 groundwork: trace recording, step-through inspection, and the viewer server. The designed viewer UI ships separately; this release carries the full data and API layer it renders.

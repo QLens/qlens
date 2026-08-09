@@ -157,3 +157,90 @@ def test_index_served(viewer: Any) -> None:
     with urllib.request.urlopen(f"{base}/", timeout=10) as response:
         body = response.read().decode()
     assert "Qlens" in body
+
+
+def test_assertion_events_carry_position_source_and_metrics(viewer: Any) -> None:
+    base, _, failing_id = viewer
+    data = _get(f"{base}/api/circuit?trace_id={failing_id}")
+    assertion = data["assertions"][0]
+    assert assertion["status"] == "failed"
+    # Position is the run's last captured gate: where the marker goes.
+    assert assertion["position"] == 1
+    assert assertion["source"].endswith(".py:43")
+    assert assertion["details"]["tolerance"] == pytest.approx(0.05)
+    assert assertion["details"]["p_value"] < 0.05
+    assert assertion["expected"] == {"01": 1.0}
+
+
+def test_infinite_statistic_serialises_as_null(viewer: Any) -> None:
+    # An observed outcome the expectation calls impossible gives an
+    # infinite chi-square, which JSON cannot represent.
+    base, _, failing_id = viewer
+    data = _get(f"{base}/api/circuit?trace_id={failing_id}")
+    assert data["assertions"][0]["details"]["statistic"] is None
+
+
+def test_waterfall_plane_shape_and_axes(viewer: Any) -> None:
+    import base64
+
+    base, passing_id, _ = viewer
+    data = _get(f"{base}/api/waterfall?trace_id={passing_id}")
+    assert data["num_states"] == 4
+    assert data["num_positions"] == 2
+    assert data["positions"] == [0, 1]
+    assert data["first_row_state"] == 0
+    assert data["last_row_state"] == 3
+    for plane in ("magnitude", "phase"):
+        raw = base64.b64decode(data[plane])
+        assert len(raw) == data["rows"] * data["num_positions"]
+
+
+def test_waterfall_threshold_drops_empty_rows(viewer: Any) -> None:
+    base, passing_id, _ = viewer
+    data = _get(f"{base}/api/waterfall?trace_id={passing_id}&threshold=0.1")
+    # Big-endian: H on qubit 0 occupies |00> and |10>, then CX takes the
+    # second to |11>. |01> is never occupied, so one row drops out and
+    # the survivors fall into two bands with a gap between them.
+    assert data["kept_rows"] == 3
+    assert data["elided_rows"] == 1
+    assert data["segments"] == [[0, 0], [1, 2]]
+
+
+def test_waterfall_bands_rows_when_over_max(viewer: Any) -> None:
+    base, passing_id, _ = viewer
+    data = _get(f"{base}/api/waterfall?trace_id={passing_id}&max_rows=2")
+    assert data["rows"] == 2
+    assert data["kept_rows"] == 4  # nothing dropped, only reduced for display
+
+
+def test_waterfall_threshold_above_everything_falls_back(viewer: Any) -> None:
+    # Filtering every row away would render a blank panel; ignoring the
+    # filter is the less confusing failure.
+    base, passing_id, _ = viewer
+    data = _get(f"{base}/api/waterfall?trace_id={passing_id}&threshold=99")
+    assert data["kept_rows"] == 4
+    assert data["threshold"] == 0.0
+
+
+def test_waterfall_rejects_non_numeric_query(viewer: Any) -> None:
+    base, passing_id, _ = viewer
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _get(f"{base}/api/waterfall?trace_id={passing_id}&threshold=abc")
+    assert excinfo.value.code == 400
+
+
+def test_waterfall_normalizes_below_the_absolute_maximum(viewer: Any) -> None:
+    # Position 0 of any circuit is near a basis state, so the absolute
+    # maximum is ~1 while the rest of the run sits far lower. The
+    # normalizing peak must track the body of the data, not that spike.
+    base, passing_id, _ = viewer
+    data = _get(f"{base}/api/waterfall?trace_id={passing_id}")
+    assert data["peak"] <= data["maximum"]
+
+
+def test_static_module_files_served(viewer: Any) -> None:
+    base, _, _ = viewer
+    for name in ("app.js", "draw.js", "ui.js", "styles.css"):
+        with urllib.request.urlopen(f"{base}/static/{name}", timeout=10) as response:
+            assert response.status == 200
+            assert response.read()

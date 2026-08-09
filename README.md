@@ -36,7 +36,7 @@ Extras: `qlens[qiskit]`, `qlens[pennylane]`, or both. Python 3.11+. Simulator-on
 - `qlens.assert_equivalent(a, b)`: same unitary up to global phase, across different gate decompositions.
 - `qlens.inspect(result)`: step-through debugging over the captured snapshots (cursor, per-position probabilities, state diffs with fidelity), with no re-execution.
 - `qlens.run(circuit, trace=True)`: records the run as a [TraceAct](https://github.com/traceact/traceact) trace with statevector sidecars, assertion pass/fail events, and per-run event budgets.
-- `qlens view traces.jsonl`: a local viewer server with a JSON API and live Server-Sent Events over recorded runs.
+- `qlens view traces.jsonl`: a local viewer over recorded runs — the amplitude waterfall across every gate position, the statevector at any point against what a test expected, an A/B diff between two positions, and clickable assertion markers. `qlens view --demo` opens it on sample runs.
 - A bundled pytest plugin: fixtures, a `qlens` marker, and automatic trace finalization per test.
 - A public backend contract with entry-point discovery, so further frameworks (Cirq and beyond) plug in as separate packages certified against a shipped conformance suite.
 
@@ -49,7 +49,9 @@ Extras: `qlens[qiskit]`, `qlens[pennylane]`, or both. Python 3.11+. Simulator-on
 
 ## Status
 
-Pre-release. Not yet published to PyPI.
+Published on [PyPI](https://pypi.org/project/qlens/). Early: the public API
+follows semver from 0.1.0, and the surfaces described here are the ones to
+build against, but expect it to keep growing quickly.
 
 ## License
 

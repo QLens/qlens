@@ -22,7 +22,7 @@ from qlens._execution import ExecutionResult, Snapshot
 from qlens._inspect import Inspector, StateDiff, inspect
 from qlens.backends import Backend, available_backends, detect_backend, get_backend
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "Backend",

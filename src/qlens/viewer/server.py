@@ -11,6 +11,7 @@ API:
     GET /api/circuits                   circuit runs, newest first
     GET /api/circuit?trace_id=          one run: layers, gates, markers
     GET /api/state?trace_id=&position=  amplitudes at a captured position
+    GET /api/waterfall?trace_id=        every position at display resolution
     GET /api/stream                     SSE: new/updated runs as they land
 """
 
@@ -23,13 +24,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-import numpy as np
-
 import qlens
 from qlens._errors import QlensError
 from qlens.tracing._spool import spool_path
+from qlens.viewer import _waterfall as waterfall
 
 _STATIC_DIR = Path(__file__).parent / "static"
+# A client asking for more rows than this is asking for a payload no
+# screen can show; the cap keeps one request from pinning a core.
+_MAX_WATERFALL_ROWS = 4096
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
@@ -119,6 +122,10 @@ def _circuit_detail(record: dict[str, Any]) -> dict[str, Any]:
                     "status": event.get("status"),
                     "error": event.get("error"),
                     "started_at": event.get("started_at"),
+                    "position": event.get("position"),
+                    "source": event.get("source"),
+                    "details": event.get("details") or {},
+                    "expected": event.get("expected"),
                 }
             )
     detail = _run_summary(record)
@@ -163,6 +170,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._serve_circuit(query)
             elif route == "/api/state":
                 self._serve_state(query)
+            elif route == "/api/waterfall":
+                self._serve_waterfall(query)
             elif route == "/api/stream":
                 self._serve_stream()
             elif route == "/":
@@ -210,24 +219,24 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_error_json("position must be an integer", 400)
             return
 
-        path = spool_path(self.state.state_dir, trace_id)
-        if not path.is_file():
+        path = self._sidecar(trace_id)
+        if path is None:
+            return
+        grid = waterfall.load(path)
+        positions = grid.positions
+        if not positions:
+            self._send_error_json(f"sidecar for {trace_id} is empty", 404)
+            return
+        if position == -1:
+            position = positions[-1]
+        if position not in positions:
             self._send_error_json(
-                f"no statevector sidecar for {trace_id}; check --state-dir", 404
+                f"position {position} not captured (available: "
+                f"{positions[0]}..{positions[-1]})",
+                404,
             )
             return
-        with np.load(path) as archive:
-            positions = sorted(int(k[4:]) for k in archive.files)
-            if position == -1:
-                position = positions[-1]
-            if position not in positions:
-                self._send_error_json(
-                    f"position {position} not captured (available: "
-                    f"{positions[0]}..{positions[-1]})",
-                    404,
-                )
-                return
-            state = np.asarray(archive[f"pos_{position}"], dtype=np.complex128)
+        state = grid.column(position)
 
         num_qubits = int((record.get("meta") or {}).get("num_qubits", 0))
         self._send_json(
@@ -240,6 +249,38 @@ class _Handler(BaseHTTPRequestHandler):
                 "amplitudes": [[float(a.real), float(a.imag)] for a in state],
             }
         )
+
+    def _sidecar(self, trace_id: str) -> Path | None:
+        path = spool_path(self.state.state_dir, trace_id)
+        if not path.is_file():
+            self._send_error_json(
+                f"no statevector sidecar for {trace_id}; check --state-dir", 404
+            )
+            return None
+        return path
+
+    def _serve_waterfall(self, query: dict[str, list[str]]) -> None:
+        record = self._record_by_id(query)
+        if record is None:
+            return
+        trace_id = str(record.get("trace_id"))
+        try:
+            max_rows = int((query.get("max_rows") or ["512"])[0])
+            threshold = float((query.get("threshold") or ["0"])[0])
+        except ValueError:
+            self._send_error_json("max_rows and threshold must be numeric", 400)
+            return
+        max_rows = max(1, min(max_rows, _MAX_WATERFALL_ROWS))
+
+        path = self._sidecar(trace_id)
+        if path is None:
+            return
+        num_qubits = int((record.get("meta") or {}).get("num_qubits", 0))
+        payload = waterfall.build(
+            path, num_qubits=num_qubits, max_rows=max_rows, threshold=threshold
+        )
+        payload["trace_id"] = trace_id
+        self._send_json(payload)
 
     def _serve_stream(self) -> None:
         """SSE: emit each run summary once, then again whenever its

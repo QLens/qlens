@@ -41,18 +41,19 @@ def max_unitarity_deviation(matrix: npt.NDArray[np.complex128]) -> float:
     return float(np.max(np.abs(product - np.eye(matrix.shape[0]))))
 
 
-def chi_square_pvalue(
+def chi_square_test(
     counts: Mapping[str, int],
     expected: Mapping[str, float],
-) -> float:
-    """p-value of a chi-square goodness-of-fit test of observed counts
-    against an expected probability distribution.
+) -> tuple[float, float]:
+    """Chi-square goodness-of-fit test of observed counts against an
+    expected probability distribution. Returns (statistic, p-value).
 
     ``expected`` maps bitstrings to probabilities (normalized here, so
     relative weights are accepted). Outcomes observed but absent from
     ``expected`` get probability zero, which is an automatic reject
     (p=0.0) if they carry any counts — a state the expectation says is
-    impossible appeared.
+    impossible appeared. The statistic is infinite in that case: the
+    contribution of a nonzero count against a zero expectation diverges.
     """
     total_shots = sum(counts.values())
     if total_shots == 0:
@@ -67,24 +68,32 @@ def chi_square_pvalue(
 
     impossible = (probabilities == 0.0) & (observed > 0)
     if impossible.any():
-        return 0.0
+        return float("inf"), 0.0
     # Drop zero-probability outcomes (all unobserved by now) — they
     # contribute nothing and break the chi-square denominator.
     keep = probabilities > 0.0
     observed, probabilities = observed[keep], probabilities[keep]
     if len(observed) == 1:
         # Single possible outcome and all counts landed on it.
-        return 1.0
+        return 0.0, 1.0
     result = stats.chisquare(f_obs=observed, f_exp=probabilities * total_shots)
-    return float(result.pvalue)
+    return float(result.statistic), float(result.pvalue)
 
 
-def ks_pvalue(
+def chi_square_pvalue(
+    counts: Mapping[str, int],
+    expected: Mapping[str, float],
+) -> float:
+    """p-value alone from :func:`chi_square_test`."""
+    return chi_square_test(counts, expected)[1]
+
+
+def ks_test(
     samples: npt.NDArray[np.float64],
     reference: npt.NDArray[np.float64] | str,
     reference_args: tuple[float, ...] = (),
-) -> float:
-    """p-value of a Kolmogorov-Smirnov test.
+) -> tuple[float, float]:
+    """Kolmogorov-Smirnov test. Returns (statistic, p-value).
 
     Two-sample when ``reference`` is an array of samples; one-sample
     against a named scipy distribution (e.g. "uniform", "norm") when it
@@ -95,4 +104,13 @@ def ks_pvalue(
         result = stats.kstest(samples, reference, args=reference_args)
     else:
         result = stats.ks_2samp(samples, reference)
-    return float(result.pvalue)
+    return float(result.statistic), float(result.pvalue)
+
+
+def ks_pvalue(
+    samples: npt.NDArray[np.float64],
+    reference: npt.NDArray[np.float64] | str,
+    reference_args: tuple[float, ...] = (),
+) -> float:
+    """p-value alone from :func:`ks_test`."""
+    return ks_test(samples, reference, reference_args)[1]

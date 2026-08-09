@@ -12,6 +12,10 @@ run's flush, at interpreter exit, or explicitly via finish().
 
 from __future__ import annotations
 
+import math
+import sys
+import sysconfig
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -26,6 +30,84 @@ if TYPE_CHECKING:
 # after the run, plus room for TraceAct's own bookkeeping.
 _BUDGET_SLACK = 64
 
+# An expected distribution rides along in the event so the viewer can
+# ghost it behind the observed bars. TraceAct drops any single value over
+# max_payload_bytes (8KB), so cap the entry count well under that; a
+# larger reference is a viewer nicety, not something worth truncating a
+# payload over.
+_MAX_EXPECTED_ENTRIES = 256
+
+
+def _caller_location() -> str | None:
+    """``file:line`` of the first frame that is neither qlens nor the
+    standard library — the test that made the assertion.
+
+    Returns None when there is no such frame. Skipping the standard
+    library matters: an assertion made from inside qlens itself would
+    otherwise be attributed to whatever ran it, and ``<frozen runpy>:88``
+    is worse than no source at all.
+    """
+    skip = (str(Path(__file__).resolve().parent.parent), sysconfig.get_paths()["stdlib"])
+    frame: Any = sys._getframe(1)
+    while frame is not None:
+        filename = frame.f_code.co_filename
+        if not filename.startswith("<"):
+            resolved = str(Path(filename).resolve())
+            if not any(resolved.startswith(root) for root in skip):
+                return f"{filename}:{frame.f_lineno}"
+        frame = frame.f_back
+    return None
+
+
+def _finite(value: float) -> float | None:
+    """JSON has no infinity or NaN; those become null."""
+    return float(value) if math.isfinite(value) else None
+
+
+def assertion_fields(
+    result: Any,
+    name: str,
+    target: str,
+    error: BaseException | None,
+    details: dict[str, float] | None,
+    expected: Any,
+) -> dict[str, Any]:
+    """Build the ``trace.event()`` kwargs for one assertion.
+
+    Carries what the viewer's assertion table and expected-vs-observed
+    overlay need: where in the run it applies, where in the source it was
+    written, the measured numbers, and the reference distribution.
+    """
+    fields: dict[str, Any] = {
+        "kind": "assertion",
+        "operation": "check",
+        "target": target,
+        "assertion": name,
+        "status": "failed" if error is not None else "completed",
+    }
+    if error is not None:
+        fields["error"] = {"type": type(error).__name__, "message": str(error)}
+
+    snapshots = getattr(result, "snapshots", None)
+    if snapshots:
+        # Assertions run against the result as a whole, so they apply at
+        # the last captured position. Positions are per-gate indices, so
+        # this is where the viewer places the marker.
+        fields["position"] = int(snapshots[-1].position)
+
+    source = _caller_location()
+    if source is not None:
+        fields["source"] = source
+    if details:
+        fields["details"] = {k: _finite(v) for k, v in details.items()}
+    if expected is not None and len(expected) <= _MAX_EXPECTED_ENTRIES:
+        total = sum(float(v) for v in expected.values())
+        if total > 0:
+            fields["expected"] = {
+                str(k): float(v) / total for k, v in expected.items()
+            }
+    return fields
+
 
 class TracedRun:
     """An open trace for one executed circuit."""
@@ -37,28 +119,13 @@ class TracedRun:
         self._failed: BaseException | None = None
 
     def record_assertion(
-        self, name: str, target: str, error: BaseException | None
+        self, error: BaseException | None, fields: dict[str, Any]
     ) -> None:
         if not self._open:
             return
         if error is not None:
             self._failed = error
-            self._trace.event(
-                kind="assertion",
-                operation="check",
-                target=target,
-                status="failed",
-                error={"type": type(error).__name__, "message": str(error)},
-                assertion=name,
-            )
-        else:
-            self._trace.event(
-                kind="assertion",
-                operation="check",
-                target=target,
-                status="completed",
-                assertion=name,
-            )
+        self._trace.event(**fields)
 
     def finish(self) -> None:
         """Close the trace. Failed assertions fail the whole trace."""
