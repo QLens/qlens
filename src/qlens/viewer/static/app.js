@@ -16,7 +16,8 @@ import {
 import {
   buildHeatmap, drawWaterfall, drawBars, drawDeltaBars, phaseTokens, phaseColor,
 } from './draw.js';
-import { guideOverlay, settingsOverlay, copyButton } from './guide.js';
+import { guideOverlay, settingsOverlay, reliabilityNotice } from './guide.js';
+import { TOUR, say } from './copy.js';
 
 const TABS = ['Timeline', 'State', 'Diff', 'Assertions'];
 const STORAGE_KEY = 'qlens.viewer.v1';
@@ -26,7 +27,11 @@ const THRESHOLDS = [
   { value: 0.005, label: '5e-3' },
   { value: 0.02, label: '2e-2' },
 ];
-const SPEEDS = [1, 4, 12];
+// Positions per second at 1x. The transport exists to watch a state
+// evolve, so the base pace is one a reader can follow rather than the
+// fastest the canvas can redraw.
+const BASE_RATE = 12;
+const SPEEDS = [0.25, 0.5, 1, 2];
 // A statevector fetch per scrub step would be one request per frame.
 // Coalescing to the trailing edge keeps the playhead responsive while
 // the panels below settle a beat later.
@@ -45,6 +50,9 @@ const state = {
   helpOpen: false,
   guideTopic: null,
   settingsOpen: false,
+  // Simple by default: someone who already knows the field loses one
+  // click switching, someone who doesn't loses the app.
+  register: saved.register === 'advanced' ? 'advanced' : 'simple',
   prefs: {
     showTour: saved.prefs?.showTour !== false,
     overlayExpected: saved.prefs?.overlayExpected !== false,
@@ -58,7 +66,7 @@ const state = {
   pinA: 0,
   pinB: 0,
   playing: false,
-  speed: 4,
+  speed: 1,
   openAssertion: null,
   error: null,
   loading: true,
@@ -155,12 +163,15 @@ async function openRun(traceId) {
   gatesByPosition = new Map(gateList().map((gate) => [gate.position, gate]));
   await loadWaterfall();
   stateCache.clear();
-  state.index = Math.max(positionCount() - 1, 0);
+  // Open at the first gate so the transport starts where playback does,
+  // and pin the two ends so Diff opens on a comparison rather than a
+  // position against itself.
+  state.index = 0;
   state.pinA = 0;
-  state.pinB = state.index;
+  state.pinB = Math.max(positionCount() - 1, 0);
   state.openAssertion = null;
   await ensureState(currentPosition());
-  await ensureState(positions()[state.pinA]);
+  await ensureState(positions()[state.pinB]);
 }
 
 async function loadWaterfall() {
@@ -251,6 +262,7 @@ function persist() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       tab: state.tab, threshold: state.threshold,
       overlay: state.overlay, helpSeen: state.helpSeen, prefs: state.prefs,
+      register: state.register,
     }));
   } catch { /* private browsing; the view still works */ }
 }
@@ -283,7 +295,7 @@ let lastFrame = 0;
 function playLoop(now) {
   const elapsed = now - lastFrame;
   lastFrame = now;
-  carry += (elapsed * state.speed * 30) / 1000;
+  carry += (elapsed * state.speed * BASE_RATE) / 1000;
   if (carry >= 1) {
     const advance = Math.floor(carry);
     carry -= advance;
@@ -623,7 +635,7 @@ function activeAssertionPanel(geo) {
   if (!assertion) {
     return panel('Assertions', [tag('none recorded')],
       h('p', { class: 'readout lo' },
-        'This run recorded no assertions. Call qlens.assert_* against the result to mark it up.'));
+        "This run didn't record any assertions. Call qlens.assert_* against the result to mark it up."));
   }
   const here = currentPosition();
   const atCursor = assertion.position !== null && Math.abs(assertion.position - here) <= 2;
@@ -838,6 +850,10 @@ function diffTab(geo) {
       tag('same run'),
       button('Pin A here', { onClick: () => { state.pinA = state.index; render(); } }),
       button('Pin B here', { onClick: () => { state.pinB = state.index; render(); } }),
+      button('Reset', {
+        title: 'Compare the first and last positions again',
+        onClick: () => { resetPins(); render(); },
+      }),
     ],
       h('div', { class: 'compare' },
         pinColumn('A', positionA, a, geo),
@@ -950,7 +966,7 @@ function assertionsTab(geo) {
       assertions.length
         ? assertions.map((assertion, i) => assertionRow(assertion, i, columns, geo))
         : h('p', { class: 'readout lo' },
-          'No assertions recorded for this run. Call qlens.assert_* against the result while its trace is open.'),
+          "No assertions recorded for this run. Call qlens.assert_* against the result while its trace is open."),
     ),
     coveragePanel(assertions),
   ];
@@ -998,7 +1014,11 @@ function assertionRow(assertion, key, columns, geo) {
       record ? canvas : h('span', { class: 'readout lo' }, hasPosition ? 'loading…' : 'no state captured for this check'),
       h('div', { style: { flex: '1', minWidth: '260px', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' } },
         metricGrid(assertion),
-        reliabilityBlock(assertion),
+        isUnreliable(assertion)
+          ? reliabilityNotice(assertion, state.register, {
+            onLearnMore: () => openGuide('checks'),
+          })
+          : null,
         h('div', { style: { display: 'flex', gap: 'var(--space-5)', flexWrap: 'wrap' } },
           hasPosition ? button('Open in timeline', {
             variant: 'secondary',
@@ -1017,34 +1037,6 @@ function assertionRow(assertion, key, columns, geo) {
  *  track is inset by a mark's width at each end. */
 const coveragePercent = (index, last) =>
   `calc(2px + ${(index / last) * 100}% - ${(index / last) * 4}px)`;
-
-/** Why a check's statistics cannot be trusted, and the exact lines that
- *  would settle it. Shown in full on the open row rather than hidden in
- *  a tooltip, because it is the thing the reader needs most. */
-function reliabilityBlock(assertion) {
-  if (!isUnreliable(assertion)) return null;
-  const { summary, remedies = [] } = assertion.reliability;
-  return h('div', { class: 'reliability' },
-    h('div', { class: 'reliability-head' },
-      status('warn', 'unreliable statistic'),
-      h('span', { class: 'readout lo' }, `method: ${assertion.method || 'unknown'}`),
-    ),
-    h('p', { class: 'reliability-body' }, summary),
-    remedies.length
-      ? h('div', { class: 'remedies' },
-        micro('use instead'),
-        remedies.map((remedy) => h('div', { class: 'remedy' },
-          h('code', {}, remedy),
-          copyButton('Copy', remedy),
-        )),
-      )
-      : null,
-    h('button', {
-      class: 'btn btn-ghost', type: 'button',
-      onClick: () => openGuide('checks'),
-    }, 'What does this mean?'),
-  );
-}
 
 function coveragePanel(assertions) {
   const list = positions();
@@ -1163,28 +1155,34 @@ function helpOverlay() {
     leader(positionX + 20, band + 96, positionX + 20, dropTo);
     overlay.append(
       helpTitle({ left: w.left + 16, top: band, width: titleWidth }, dismiss),
-      helpNote('colour = phase',
-        'Hue is the phase of that amplitude, −π to +π around the wheel. Brightness is magnitude.',
+      helpNote(TOUR.colour.label, say(TOUR.colour, state.register),
         { left: colourX, top: band, width: 240 }),
-      helpNote('x = position',
-        `Left to right is time: ${positionCount()} columns, one per gate applied.`,
+      helpNote(TOUR.position.label, say(TOUR.position, state.register)(positionCount()),
         { left: positionX, top: band, width: 240 }),
     );
 
-    // The playhead, and the assertion nearest it, named where they sit.
-    const headX = w.left + ((state.index + 0.5) / Math.max(positionCount(), 1)) * w.width;
-    leader(headX, g.top + g.height + 96, headX, w.top + w.height * 0.72);
-    overlay.append(helpNote('the cursor',
-      'Everything below the waterfall reads the state at this column. Drag anywhere on the field to move it.',
-      { left: Math.min(headX - 130, frame.width - 300), top: g.top + g.height + 104, width: 260 }));
+    // The playhead, and the assertion nearest it. Both of these anchor
+    // to a column that is often the last one in the run, where a note
+    // placed to the right would have nowhere to go, so each takes
+    // whichever side of its anchor has room. Their leader lines are kept
+    // to separate vertical bands as well, since two anchors on the same
+    // column would otherwise draw one line over the other.
+    const columnX = (index) =>
+      w.left + ((index + 0.5) / Math.max(positionCount(), 1)) * w.width;
+
+    const headX = columnX(state.index);
+    const cursorNote = { top: g.top + g.height + 104, width: 260 };
+    cursorNote.left = besideAnchor(headX, cursorNote.width, frame.width);
+    leader(headX, cursorNote.top - 8, headX, g.top + 4);
+    overlay.append(helpNote(TOUR.cursor.label, say(TOUR.cursor, state.register), cursorNote));
 
     const mark = markers()[0];
     if (mark) {
-      const markX = w.left + ((mark.index + 0.5) / Math.max(positionCount(), 1)) * w.width;
-      leader(markX, w.top + w.height + 40, markX, w.top + w.height - 24);
-      overlay.append(helpNote('assertion rules',
-        'Green passed, red failed. shift+←→ jumps between them; the panel below shows the one nearest the cursor.',
-        { left: Math.min(markX + 16, frame.width - 300), top: w.top + w.height + 20, width: 280 }));
+      const markX = columnX(mark.index);
+      const markNote = { top: w.top + w.height * 0.52, width: 280 };
+      markNote.left = besideAnchor(markX, markNote.width, frame.width);
+      leader(markX, markNote.top - 10, markX, w.top + w.height * 0.24);
+      overlay.append(helpNote(TOUR.marks.label, say(TOUR.marks, state.register), markNote));
     }
 
     leader(g.left + 120, g.top + g.height + 96, g.left + 120, g.top + g.height / 2);
@@ -1201,6 +1199,15 @@ function helpOverlay() {
 const clampLeft = (left, width) =>
   Math.max(8, Math.min(left, (document.getElementById('body')?.clientWidth || 0) - width - 8));
 
+/** Left edge for a note sitting beside an anchor, on whichever side has
+ *  room. An anchor near a frame edge would otherwise pin its note
+ *  against that edge, away from the thing it points at. */
+function besideAnchor(anchorX, width, frameWidth, gutter = 28) {
+  const toTheRight = anchorX + gutter;
+  if (toTheRight + width + 8 <= frameWidth) return toTheRight;
+  return Math.max(8, anchorX - gutter - width);
+}
+
 function helpTitle(position, dismiss) {
   return h('div', {
     class: 'help-title',
@@ -1208,13 +1215,11 @@ function helpTitle(position, dismiss) {
       left: `${position.left}px`, top: `${position.top}px`, width: `${position.width}px`,
     },
   },
-    h('h2', {}, 'Reading the waterfall'),
-    h('p', {},
-      'Every column is one gate position. Every row is one basis state. '
-      + 'The whole execution at once, with no scrubbing to find where it went wrong.'),
+    h('h2', {}, say(TOUR.title, state.register)),
+    h('p', {}, say(TOUR.lede, state.register)),
     h('div', { class: 'help-foot' },
       button('Got it', { variant: 'primary', onClick: dismiss }),
-      h('span', { class: 'readout lo' }, 'shown once · re-open from the ⓘ in the panel header'),
+      h('span', { class: 'readout lo' }, say(TOUR.foot, state.register)),
     ),
   );
 }
@@ -1223,9 +1228,8 @@ function helpTitle(position, dismiss) {
  *  where the guide was re-opened out of context. */
 function helpFallback(dismiss) {
   return h('div', { class: 'help-title', style: { left: '50%', top: '25%', transform: 'translateX(-50%)' } },
-    h('h2', {}, 'Reading the waterfall'),
-    h('p', {}, 'Every column is one gate position. Every row is one basis state. '
-      + 'Hue is phase, brightness is magnitude.'),
+    h('h2', {}, say(TOUR.title, state.register)),
+    h('p', {}, say(TOUR.lede, state.register)),
     h('div', { class: 'help-foot' }, button('Got it', { variant: 'primary', onClick: dismiss })),
   );
 }
@@ -1281,13 +1285,16 @@ function render() {
   if (state.guideTopic) {
     body.append(guideOverlay({
       topicId: state.guideTopic,
+      register: state.register,
       onTopic: (id) => { state.guideTopic = id; render(); },
+      onRegister: setRegister,
       onClose: () => { state.guideTopic = null; render(); },
     }));
   }
   if (state.settingsOpen) {
     body.append(settingsOverlay({
       prefs: state.prefs,
+      register: state.register,
       runSettings: state.detail?.settings || {},
       onChange: (key, value) => {
         state.prefs[key] = value;
@@ -1295,6 +1302,7 @@ function render() {
         persist();
         render();
       },
+      onRegister: setRegister,
       onResetNotices: resetNotices,
       onClose: () => { state.settingsOpen = false; render(); },
     }));
@@ -1304,6 +1312,19 @@ function render() {
 
 /** Bring every dismissed piece of guidance back. Someone who clicked a
  *  notice away before reading it has no other way to recover it. */
+/** Back to comparing the ends of the run, which is where Diff starts. */
+function resetPins() {
+  state.pinA = 0;
+  state.pinB = Math.max(positionCount() - 1, 0);
+  ensureState(positions()[state.pinB]).then(render).catch(() => {});
+}
+
+function setRegister(register) {
+  state.register = register;
+  persist();
+  render();
+}
+
 function resetNotices() {
   state.helpSeen = false;
   state.prefs.showTour = true;
@@ -1320,10 +1341,10 @@ function emptyState() {
     phaseQ(56, 45),
     h('h2', {}, 'Waiting for a circuit run'),
     h('p', {},
-      'Record one against this trace source and it appears here live, '
+      "Record one against this trace source and it'll appear here live, "
       + 'with the whole execution laid out gate by gate.'),
     h('code', {}, 'qlens.run(circuit, trace=True)'),
-    h('p', { class: 'dim' }, 'Or open the viewer on sample runs to try it first:'),
+    h('p', { class: 'dim' }, "Or open the viewer on sample runs if you'd rather try it first:"),
     h('code', {}, 'qlens view --demo'),
   );
 }

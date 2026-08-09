@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 — 2026-08-09
+## 0.4.0 — 2026-08-10
 
 Assertions that name a point in the run, and a choice of how a distribution is compared.
 
@@ -16,11 +16,20 @@ Assertions that name a point in the run, and a choice of how a distribution is c
 - A reading guide in the viewer, written for someone new to quantum computing, reachable from the top bar at any time and from the ⓘ on each panel. A settings panel holds viewer preferences and **Reset dismissed notices**, which brings back the guided tour and anything else clicked away.
 - Flagged checks show an `UNRELIABLE` badge in the assertions table, with the explanation and copyable alternatives on the open row.
 - `qlens.QlensStatisticsWarning`, and an `assert_state` pytest fixture.
+- Two registers for every explanation in the viewer, Simple and Advanced, switchable from the guide header or Settings and persisted across sessions.
+- A Reset control on the Diff tab, restoring the comparison to the ends of the run.
+
+### Changed
+
+- A run opens at its first gate rather than its last, and the Diff tab opens comparing the two ends of the run rather than a position against itself.
+- Playback speeds are 0.25×, 0.5×, 1×, and 2×, defaulting to 1×, paced for following a state as it evolves.
+- The reading guide holds a constant size and scrolls internally, rather than resizing to each topic.
 
 ### Fixed
 
-- The guided tour rendered as an empty overlay when the viewer opened in a background tab, where `requestAnimationFrame` does not fire. Its anchors are now measured synchronously.
+- The guided tour rendered as an empty overlay when the viewer opened in a background tab, where `requestAnimationFrame` doesn't fire. Its anchors are now measured synchronously.
 - The tour could follow a tab switch and anchor its annotations to whatever canvas was on screen.
+- Tour notes anchored to a column near the right edge were pinned against the frame; each now takes whichever side of its anchor has room.
 
 ## 0.3.0 — 2026-08-09
 

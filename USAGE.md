@@ -384,9 +384,13 @@ Opens a local web viewer over a trace source (a TraceAct `.jsonl` file, a folder
 | `home` `end` | First / last position |
 | `1`–`4` | Switch tab |
 
-**Guide** in the top bar opens a plain-language reading guide, written for someone new to quantum computing: what the waterfall shows, what phase is and why it is drawn as colour, what a position is, and how each test method decides whether a check held. It stays reachable at all times, and the ⓘ on a panel opens it at the relevant topic.
+**Guide** in the top bar opens the reading guide: what the waterfall shows, what phase is and why it's drawn as colour, what a position is, and how each test method decides whether a check held. It stays reachable at all times, and the ⓘ on a panel opens it at the relevant topic.
 
-**Settings** (the gear) holds viewer preferences, the test settings the current run used, and **Reset dismissed notices**, which brings back the guided tour and anything else clicked away.
+Every explanation comes in two registers, switchable from the guide header or Settings. **Simple** assumes no quantum background and explains from first principles; **Advanced** assumes the field and states the fact. The choice persists and applies to the guide, the guided tour, and the reliability notices alike.
+
+**Settings** (the gear) holds that toggle, viewer preferences, the test settings the current run used, and **Reset dismissed notices**, which brings back the guided tour and anything else clicked away.
+
+A run opens at its first gate with playback at 1×, so the transport starts where the circuit does. Speeds run 0.25× to 2×, paced for reading rather than for scrubbing.
 
 Dragging anywhere on the waterfall, the wire strip, or the scrubber moves the cursor. **Collapse near-zero rows** drops basis states whose amplitude never exceeds a threshold anywhere in the run, which is what makes a 10-qubit run legible; a dashed rule marks where states were skipped.
 

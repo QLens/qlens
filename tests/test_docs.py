@@ -117,3 +117,39 @@ def test_documented_policies_match_the_accepted_ones() -> None:
     row = section[: section.index("|", len("`on_unreliable_statistics` | ") + 40)]
     for policy in _POLICIES:
         assert f"`{policy}`" in row, policy
+
+
+def test_every_string_exists_in_both_registers() -> None:
+    """A one-register entry silently falls back, so the reader gets the
+    wrong voice with no error to notice. Checked structurally because
+    the copy lives in JS, where the Python suite cannot import it."""
+    copy = (ROOT / "src/qlens/viewer/static/copy.js").read_text(encoding="utf-8")
+    # Every topic and tour entry declares both keys.
+    simple = copy.count("simple:")
+    advanced = copy.count("advanced:")
+    assert simple == advanced, f"{simple} simple entries vs {advanced} advanced"
+    assert simple >= 20, "copy.js lost entries"
+
+
+def test_viewer_copy_uses_contractions() -> None:
+    """House style. Expanded forms read stiffly next to the rest."""
+    banned = (" do not ", " does not ", " cannot ", " will not ", " did not ",
+              " is not ", " are not ", " it is ", " that is ", " you are ")
+    for name in ("copy.js", "app.js", "guide.js"):
+        text = (ROOT / "src/qlens/viewer/static" / name).read_text(encoding="utf-8")
+        # Strings only: comments explain code and may phrase things formally.
+        quoted = re.findall(r"['\"`]([^'\"`\n]{20,})['\"`]", text)
+        for line in quoted:
+            lowered = f" {line.lower()} "
+            hits = [phrase for phrase in banned if phrase in lowered]
+            assert not hits, f"{name}: {hits} in {line[:70]!r}"
+
+
+def test_transport_defaults_are_the_requested_ones() -> None:
+    """Playback opens at the start of the run at 1x, and the speed
+    choices are the slow set. All three are deliberate and easy to
+    revert by accident while editing nearby code."""
+    app = (ROOT / "src/qlens/viewer/static/app.js").read_text(encoding="utf-8")
+    assert re.search(r"const SPEEDS = \[0\.25, 0\.5, 1, 2\];", app)
+    assert re.search(r"^  speed: 1,$", app, flags=re.MULTILINE)
+    assert re.search(r"^  state\.index = 0;$", app, flags=re.MULTILINE)

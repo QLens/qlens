@@ -385,8 +385,18 @@ canvas { display: block }
   box-shadow: var(--shadow-panel); overflow: hidden;
   max-height: 100%; width: 100%;
 }
-.guide { display: grid; grid-template-columns: 240px minmax(0, 1fr); max-width: 900px }
-.settings { max-width: 620px; padding: var(--space-9); overflow-y: auto }
+/* Fixed size, scrolling inside. Sizing the box to its content makes it
+   jump every time the topic changes, and it would also mean a new
+   section could stretch to the full viewport height or be squeezed flat
+   on a short window. The height is constant; only the prose moves. */
+.guide {
+  display: grid; grid-template-columns: 240px minmax(0, 1fr);
+  max-width: 900px; height: min(660px, 100%);
+}
+.settings {
+  max-width: 620px; padding: var(--space-9);
+  overflow-y: auto; overscroll-behavior: contain;
+}
 
 .guide-rail {
   background: var(--bg-0); border-right: 1px solid var(--border-subtle);
@@ -410,7 +420,8 @@ canvas { display: block }
   display: flex; flex-direction: column; min-height: 0;
   padding: var(--space-9); gap: var(--space-7);
 }
-.guide-content { overflow-y: auto; min-height: 0 }
+.guide-rail { overscroll-behavior: contain }
+.guide-content { flex: 1; overflow-y: auto; min-height: 0; overscroll-behavior: contain }
 .guide-content h2 {
   margin: 0 0 var(--space-7); font-size: 20px; font-weight: 600;
   letter-spacing: var(--tracking-tight);
@@ -475,9 +486,37 @@ canvas { display: block }
   border-radius: var(--radius-2); padding: var(--space-2) var(--space-5);
 }
 
+@media (max-height: 720px) {
+  .guide { height: calc(100% - 8px) }
+}
+
 @media (max-width: 760px) {
   .guide { grid-template-columns: 1fr }
   .guide-rail { flex-direction: row; overflow-x: auto; border-right: none;
     border-bottom: 1px solid var(--border-subtle) }
   .guide-rail > .micro { display: none }
+}
+
+/* ---------- simple / advanced register ---------- */
+
+.guide-head {
+  display: flex; align-items: center; gap: var(--space-7);
+  margin-bottom: var(--space-7); flex-wrap: wrap;
+}
+.guide-head h2 { margin: 0 }
+.guide-head .register-toggle { margin-left: auto }
+
+.register-toggle {
+  display: inline-flex; flex-shrink: 0; padding: 2px;
+  background: var(--bg-0); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-2);
+}
+.register-option {
+  font-size: var(--text-xs); padding: var(--space-2) var(--space-6);
+  border-radius: var(--radius-1); color: var(--text-tertiary);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.register-option:hover { color: var(--text-primary) }
+.register-option[aria-pressed="true"] {
+  background: var(--accent-9); color: var(--text-on-accent); font-weight: 600;
 }
