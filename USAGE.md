@@ -289,7 +289,7 @@ qlens view data/traces/traces.jsonl     # your own runs
 
 Opens a local web viewer over a trace source (a TraceAct `.jsonl` file, a folder of them, or a `SqliteSink` database). Runs recorded with `trace=True` or `trace="gates"` appear in the run picker, and the page updates live while a test session writes new traces, including in-flight runs when TraceAct's `stream_progress` is enabled.
 
-`--demo` generates two sample runs and opens on those instead of a source. They execute on the bundled reference simulator, so the demo works with neither Qiskit nor PennyLane installed, and they are recorded through the ordinary path: the same trace events, sidecars, and assertion records a real test produces.
+`--demo` generates three sample runs and opens on those instead of a source: a dense variational ansatz carrying one passing and one failing check, a sparse-subspace circuit where the collapse control has most of its rows to drop, and a GHZ state with phase winding. They execute on the bundled reference simulator, so the demo works with neither Qiskit nor PennyLane installed, and they are recorded through the ordinary path: the same trace events, sidecars, and assertion records a real test produces.
 
 | Flag | Meaning |
 |---|---|

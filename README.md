@@ -50,8 +50,8 @@ Extras: `qlens[qiskit]`, `qlens[pennylane]`, or both. Python 3.11+. Simulator-on
 ## Status
 
 Published on [PyPI](https://pypi.org/project/qlens/). Early: the public API
-follows semver from 0.1.0, and the surfaces described here are the ones to
-build against, but expect it to keep growing quickly.
+follows semver and the surfaces described here are the ones to build against,
+but expect it to keep growing quickly.
 
 ## License
 

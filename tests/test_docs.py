@@ -16,6 +16,7 @@ from qlens.viewer.cli import main
 
 ROOT = Path(__file__).parent.parent
 USAGE = (ROOT / "USAGE.md").read_text(encoding="utf-8")
+NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
 
 
 def test_every_documented_endpoint_is_routed() -> None:
@@ -64,3 +65,25 @@ def test_documented_expected_cap_matches_the_adapter() -> None:
 
 
 _HANDLER_SOURCE = str(ROOT / "src/qlens/viewer/server.py")
+
+
+def test_documented_sample_run_count_matches_the_generator() -> None:
+    """Prose counts drift the moment a sample run is added. This one has
+    already gone stale twice across USAGE, ARCHITECTURE, and CHANGELOG."""
+    # Only counting words, so "Generate sample runs" in the flag table
+    # is not mistaken for a claim about how many there are.
+    counts = "|".join(NUMBER_WORDS)
+    claimed = set(re.findall(rf"({counts}) sample runs", USAGE))
+    assert claimed, "USAGE.md lost its count of --demo sample runs"
+    demo = (ROOT / "src/qlens/viewer/_demo.py").read_text()
+    actual = len(re.findall(r"^    _record_\w+\(qlens, tracing\)", demo, flags=re.MULTILINE))
+    assert actual > 0
+    assert {NUMBER_WORDS[word] for word in claimed} == {actual}
+
+
+def test_documented_module_count_matches_the_static_dir() -> None:
+    architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    claimed = re.search(r"(\w+) ES modules served", architecture)
+    assert claimed, "ARCHITECTURE.md lost its frontend description"
+    modules = list((ROOT / "src/qlens/viewer/static").glob("*.js"))
+    assert NUMBER_WORDS[claimed.group(1).lower()] == len(modules)
