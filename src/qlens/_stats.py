@@ -142,7 +142,13 @@ def _chi_square_statistic(
     simulated tables reduces in one pass."""
     keep = expected_counts > 0
     difference = observed[..., keep] - expected_counts[keep]
-    return np.sum(difference * difference / expected_counts[keep], axis=-1)
+    # Annotated rather than returned directly: numpy's stubs type
+    # np.sum's reduction as Any on some versions, which mypy rejects
+    # against the declared return type on those runners only.
+    total: npt.NDArray[np.float64] = np.sum(
+        difference * difference / expected_counts[keep], axis=-1
+    )
+    return total
 
 
 def chi_square_exact_test(
