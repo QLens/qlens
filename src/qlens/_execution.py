@@ -27,7 +27,12 @@ class Snapshot:
     """State captured immediately after one gate application.
 
     position: 0-based index of the gate in execution order.
-    gate: canonical lowercase gate name (see CONVENTIONS.md).
+    gate: canonical lowercase gate name, one spelling across every
+        backend (see CONVENTIONS.md). A gate outside Qlens's vocabulary
+        keeps the framework's own name, lowercased.
+    native_gate: what the framework itself called this gate. Defaults to
+        ``gate``, which is what a backend reporting no distinct native
+        spelling means.
     qubits: qubit indices the gate acted on, control qubits first.
     params: numeric gate parameters by name; empty for non-parameterized gates.
     statevector: full statevector after this gate, big-endian basis order.
@@ -38,6 +43,12 @@ class Snapshot:
     qubits: tuple[int, ...]
     params: dict[str, float]
     statevector: npt.NDArray[np.complex128]
+    native_gate: str = ""
+
+    def __post_init__(self) -> None:
+        # Frozen, so the default has to be filled in the long way round.
+        if not self.native_gate:
+            object.__setattr__(self, "native_gate", self.gate)
 
 
 @dataclass

@@ -6,6 +6,7 @@ run_conformance.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from qlens.conformance._circuits import Program
@@ -73,7 +74,40 @@ def build_pennylane(program: Program, num_qubits: int) -> Any:
     return qml.QNode(circuit, device)
 
 
+def build_cirq(program: Program, num_qubits: int) -> Any:
+    import cirq
+
+    qubits = cirq.LineQubit.range(num_qubits)
+    # Cirq's fixed gates are singletons and its rotations are factories, so
+    # both arrive here as callables taking the program's parameters.
+    gate_factories: dict[str, Callable[..., Any]] = {
+        "i": lambda: cirq.I,
+        "x": lambda: cirq.X,
+        "y": lambda: cirq.Y,
+        "z": lambda: cirq.Z,
+        "h": lambda: cirq.H,
+        "s": lambda: cirq.S,
+        "t": lambda: cirq.T,
+        "cx": lambda: cirq.CNOT,
+        "cz": lambda: cirq.CZ,
+        "swap": lambda: cirq.SWAP,
+        "ccx": lambda: cirq.TOFFOLI,
+        "rx": cirq.rx,
+        "ry": cirq.ry,
+        "rz": cirq.rz,
+    }
+    operations = [
+        gate_factories[gate](*params).on(*(qubits[q] for q in qubit_indices))
+        for gate, qubit_indices, params in program
+    ]
+    # One gate per moment. Cirq would otherwise pack gates on disjoint
+    # qubits into a shared moment, and snapshots follow moment order, so
+    # packing would reorder the program's positions.
+    return cirq.Circuit(operations, strategy=cirq.InsertStrategy.NEW)
+
+
 BUILDERS = {
     "qiskit": build_qiskit,
     "pennylane": build_pennylane,
+    "cirq": build_cirq,
 }

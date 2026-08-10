@@ -24,6 +24,7 @@ import numpy.typing as npt
 
 from qlens._errors import UnsupportedCircuitError
 from qlens._execution import ExecutionResult, Snapshot
+from qlens._gates import normalize
 from qlens._stats import max_unitarity_deviation
 from qlens.backends.base import Backend
 
@@ -88,7 +89,8 @@ class QiskitBackend(Backend):
             snapshots.append(
                 Snapshot(
                     position=position,
-                    gate=op.name.lower(),
+                    gate=normalize(op.name),
+                    native_gate=op.name.lower(),
                     qubits=tuple(qargs),
                     params={
                         f"p{i}": float(p) for i, p in enumerate(op.params)

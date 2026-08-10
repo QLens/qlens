@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qlens"
-version = "0.4.0"
+version = "0.5.0"
 description = "A testing, debugging, and observability SDK for quantum programs, simulator-first."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,6 +17,7 @@ keywords = [
     "debugging",
     "qiskit",
     "pennylane",
+    "cirq",
     "pytest",
 ]
 classifiers = [
@@ -45,9 +46,11 @@ dependencies = [
 [project.optional-dependencies]
 qiskit = ["qiskit>=2.5"]
 pennylane = ["pennylane>=0.45"]
+cirq = ["cirq-core>=1.7"]
 dev = [
     "qiskit>=2.5",
     "pennylane>=0.45",
+    "cirq-core>=1.7",
     "pytest>=8",
     "pytest-randomly>=3.15",
     "mypy>=1.10",
@@ -71,11 +74,12 @@ qlens = "qlens.viewer.cli:main"
 qlens = "qlens.pytest_plugin"
 
 # First-party backends register through the same entry-point group a
-# third-party backend (e.g. qlens-cirq) would use. The registry discovers
-# backends exclusively through this group — no private shortcuts.
+# third-party backend would use. The registry discovers backends
+# exclusively through this group — no private shortcuts.
 [project.entry-points."qlens.backends"]
 qiskit = "qlens.backends._qiskit:QiskitBackend"
 pennylane = "qlens.backends._pennylane:PennyLaneBackend"
+cirq = "qlens.backends._cirq:CirqBackend"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/qlens"]
@@ -106,5 +110,5 @@ strict = true
 python_version = "3.12"
 
 [[tool.mypy.overrides]]
-module = ["qiskit.*", "pennylane.*", "scipy.*", "traceact.*"]
+module = ["qiskit.*", "pennylane.*", "cirq.*", "scipy.*", "traceact.*"]
 ignore_missing_imports = true

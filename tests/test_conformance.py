@@ -40,3 +40,8 @@ def test_qiskit_conformance() -> None:
 def test_pennylane_conformance() -> None:
     pytest.importorskip("pennylane")
     assert run_conformance(get_backend("pennylane")) == []
+
+
+def test_cirq_conformance() -> None:
+    pytest.importorskip("cirq")
+    assert run_conformance(get_backend("cirq")) == []

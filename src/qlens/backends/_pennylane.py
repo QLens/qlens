@@ -28,6 +28,7 @@ import numpy.typing as npt
 
 from qlens._errors import UnsupportedCircuitError
 from qlens._execution import ExecutionResult, Snapshot
+from qlens._gates import normalize
 from qlens._stats import max_unitarity_deviation, phase_invariant_allclose
 from qlens.backends.base import Backend
 
@@ -81,7 +82,8 @@ class PennyLaneBackend(Backend):
             snapshots.append(
                 Snapshot(
                     position=position,
-                    gate=op.name.lower(),
+                    gate=normalize(op.name),
+                    native_gate=op.name.lower(),
                     qubits=tuple(wires.index(w) for w in op.wires),
                     params={f"p{i}": float(p) for i, p in enumerate(op.parameters)},
                     statevector=state,

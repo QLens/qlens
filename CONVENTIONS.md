@@ -42,7 +42,28 @@ For frameworks with non-integer wire labels (PennyLane allows any hashable), wir
 
 ## Snapshots
 
-One `Snapshot` per gate, in execution order, positions numbered from 0. Structural pseudo-instructions (barriers, delays) produce no snapshot. A circuit with no gates yields a single snapshot holding the initial `|0...0>` state. Gate names are lowercase.
+One `Snapshot` per gate, in execution order, positions numbered from 0. Structural pseudo-instructions (barriers, delays) produce no snapshot. A circuit with no gates yields a single snapshot holding the initial `|0...0>` state.
+
+## Gate names
+
+`Snapshot.gate` is one lowercase name per gate across every backend. The frameworks disagree about spelling, and absorbing that is a backend's job rather than a caller's: a controlled-NOT reports `cx` whether the framework called it `cx`, `CNOT`, or something else again.
+
+| Canonical | Qiskit | PennyLane | Cirq |
+|---|---|---|---|
+| `i` | `id` | `Identity` | `I` |
+| `x` | `x` | `PauliX` | `X` |
+| `h` | `h` | `Hadamard` | `H` |
+| `sdg` | `sdg` | `Adjoint(S)` | `S**-1` |
+| `sx` | `sx` | `SX` | `X**0.5` |
+| `cx` | `cx` | `CNOT` | `CNOT` |
+| `ccx` | `ccx` | `Toffoli` | `TOFFOLI` |
+| `cswap` | `cswap` | `CSWAP` | `FREDKIN` |
+| `p` | `p` | `PhaseShift` | — |
+| `u` | `u` | `Rot` | — |
+
+A gate outside this vocabulary keeps the framework's own name, lowercased, rather than being forced into a canonical one it does not have. `Snapshot.native_gate` always holds what the framework itself called the gate, so nothing is lost in translation and a backend-specific gate is still identifiable.
+
+`Snapshot.params` follows the same rule. Rotations report their angle in radians (`p0`) on every backend. A gate whose canonical name already fixes its rotation reports no parameters anywhere, even where the framework models it as a power of another gate and carries an exponent.
 
 ## Counts
 

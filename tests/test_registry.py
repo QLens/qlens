@@ -16,7 +16,7 @@ def test_first_party_backends_registered() -> None:
 
 def test_unknown_backend_name() -> None:
     with pytest.raises(qlens.BackendNotFoundError, match="no backend named"):
-        get_backend("cirq")
+        get_backend("braket")
 
 
 def test_detect_rejects_foreign_object() -> None:
