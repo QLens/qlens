@@ -16,7 +16,10 @@ from qlens.viewer.cli import main
 
 ROOT = Path(__file__).parent.parent
 USAGE = (ROOT / "USAGE.md").read_text(encoding="utf-8")
-NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
 
 
 def test_every_documented_endpoint_is_routed() -> None:
@@ -146,10 +149,10 @@ def test_viewer_copy_uses_contractions() -> None:
 
 
 def test_transport_defaults_are_the_requested_ones() -> None:
-    """Playback opens at the start of the run at 1x, and the speed
+    """Playback opens at the start of the run at 0.5x, and the speed
     choices are the slow set. All three are deliberate and easy to
     revert by accident while editing nearby code."""
     app = (ROOT / "src/qlens/viewer/static/app.js").read_text(encoding="utf-8")
     assert re.search(r"const SPEEDS = \[0\.25, 0\.5, 1, 2\];", app)
-    assert re.search(r"^  speed: 1,$", app, flags=re.MULTILINE)
+    assert re.search(r"^  speed: 0\.5,$", app, flags=re.MULTILINE)
     assert re.search(r"^  state\.index = 0;$", app, flags=re.MULTILINE)

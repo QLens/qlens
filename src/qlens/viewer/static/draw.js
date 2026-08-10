@@ -7,6 +7,8 @@
  * cannot drift apart in how they map amplitude to colour.
  */
 
+import { positionAxis, columnX, inView } from './logic.js';
+
 const HUE_BUCKETS = 72;
 const LIGHT_BUCKETS = 48;
 
@@ -83,7 +85,12 @@ export const decodePlane = (base64) =>
  *  native cell resolution. Scaling to the panel happens at draw time, so
  *  a resize never re-runs the colour mapping. */
 export function buildHeatmap(waterfall) {
-  const { rows, num_positions: columns } = waterfall;
+  const { rows } = waterfall;
+  // Columns are the ones served, not the run's total: under a viewport
+  // the planes are a slice, and sizing the image by the whole run reads
+  // the bytes at the wrong stride.
+  const axis = positionAxis(waterfall);
+  const columns = axis.columns;
   const magnitude = decodePlane(waterfall.magnitude);
   const phase = decodePlane(waterfall.phase);
   const canvas = document.createElement('canvas');
@@ -136,8 +143,13 @@ export function drawWaterfall(canvas, { heatmap, waterfall, width, height, index
   ctx.fillRect(0, 0, width, height);
   if (heatmap) ctx.drawImage(heatmap, 0, 0, width, height);
 
-  const columns = Math.max(waterfall.num_positions, 1);
-  const xAt = (i) => Math.round(((i + 0.5) / columns) * width) + 0.5;
+  // Positions are run-wide indices while the field may be a slice of the
+  // run, so everything drawn over it converts through the axis.
+  const axis = positionAxis(waterfall);
+  const xAt = (i) => Math.round(columnX(i, axis, width)) + 0.5;
+  // Rows on screen, which under a row viewport is the window rather than
+  // everything the threshold kept.
+  const rows = waterfall.view_rows || waterfall.kept_rows || 1;
 
   // The server returns segments only when they read as bands, so there
   // is no second threshold to keep in step here.
@@ -147,24 +159,28 @@ export function drawWaterfall(canvas, { heatmap, waterfall, width, height, index
     ctx.lineWidth = 1;
     ctx.setLineDash([2, 3]);
     for (const [, end] of segments.slice(0, -1)) {
-      const y = Math.round(((end + 1) / waterfall.kept_rows) * height) + 0.5;
+      const y = Math.round(((end + 1) / rows) * height) + 0.5;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
     }
     ctx.setLineDash([]);
   }
 
   for (const mark of marks || []) {
-    if (mark.index === null) continue;
+    if (mark.index === null || !inView(mark.index, axis)) continue;
     ctx.strokeStyle = mark.pass ? 'oklch(76% 0.18 148 / 0.5)' : 'oklch(68% 0.2 25 / 0.85)';
     ctx.lineWidth = 1;
     const x = xAt(mark.index);
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
   }
 
-  ctx.strokeStyle = 'oklch(78% 0.17 175)';
-  ctx.lineWidth = 1.5;
-  const head = xAt(index);
-  ctx.beginPath(); ctx.moveTo(head, 0); ctx.lineTo(head, height); ctx.stroke();
+  // The cursor can sit outside a zoomed field. Drawing it clamped to an
+  // edge would claim the run is at a position it is not.
+  if (inView(index, axis)) {
+    ctx.strokeStyle = 'oklch(78% 0.17 175)';
+    ctx.lineWidth = 1.5;
+    const head = xAt(index);
+    ctx.beginPath(); ctx.moveTo(head, 0); ctx.lineTo(head, height); ctx.stroke();
+  }
 }
 
 /* ---------- bars ---------- */

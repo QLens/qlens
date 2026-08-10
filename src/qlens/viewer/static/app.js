@@ -11,14 +11,21 @@
 
 import {
   h, svg, clear, panel, tag, micro, val, button, iconButton, status, toggle,
-  segmented, phaseQ, bits, ket, fixed, sci, signed, meaningful, shortSource,
+  segmented, phaseQ, bits, ket, fixed, sci, signed, meaningful, paramText, shortSource,
 } from './ui.js';
 import {
   buildHeatmap, drawWaterfall, drawBars, drawDeltaBars, phaseTokens, phaseColor,
   barAtPointer,
 } from './draw.js';
+import {
+  assertionDetail, isUnreliable, gateText, alongside, sortRows, rankExpectations, chooseExpectation,
+  expectationLabel, expectedVector as expandExpected, rankDivergences,
+  coveragePercent, besideAnchor, positionAxis, columnX, inView, columnIndex,
+  zoomRange, panRange, rangeFromFractions,
+} from './logic.js';
 import { guideOverlay, settingsOverlay, reliabilityNotice } from './guide.js';
 import { TOUR, say } from './copy.js';
+import { trace, install as installDebug } from './debug.js';
 
 const TABS = ['Timeline', 'State', 'Diff', 'Assertions'];
 const STORAGE_KEY = 'qlens.viewer.v1';
@@ -33,6 +40,11 @@ const THRESHOLDS = [
 // fastest the canvas can redraw.
 const BASE_RATE = 12;
 const SPEEDS = [0.25, 0.5, 1, 2];
+// Two clicks on the field within this, on the same column, open it. Held
+// in module scope because the surfaces they land on are rebuilt between
+// the two clicks.
+const DOUBLE_CLICK_MS = 400;
+let lastClick = { at: 0, index: -1 };
 // A statevector fetch per scrub step would be one request per frame.
 // Coalescing to the trailing edge keeps the playhead responsive while
 // the panels below settle a beat later.
@@ -69,10 +81,20 @@ const state = {
   pinA: 0,
   pinB: 0,
   playing: false,
-  speed: 1,
+  // 0.5x by default: the transport exists to watch a state evolve, and
+  // a gate every 24th of a second is faster than anyone reads one.
+  speed: 0.5,
   openAssertion: null,
   //: which basis state the reader clicked to isolate on the State tab
   focusedBasis: null,
+  //: which recorded check the State tab ghosts behind the observed bars,
+  //  as an index into the run's assertions. Null picks automatically.
+  expectationKey: null,
+  //: the slice of the run the field shows. Null is the whole run. Not
+  //  persisted: a viewport belongs to a run, and the next one opened is
+  //  a different length with different places worth looking at.
+  view: null,
+  rowView: null,
   error: null,
   loading: true,
   health: null,
@@ -102,17 +124,31 @@ function gateList() {
 }
 
 let gatesByPosition = new Map();
+let layersByPosition = new Map();
+
+/** Position lookups for the loaded run, rebuilt whenever its circuit
+ *  arrives or grows. Hover reads these on every pointer move, so they are
+ *  built once here rather than scanned per event. */
+function indexCircuit() {
+  gatesByPosition = new Map(gateList().map((gate) => [gate.position, gate]));
+  layersByPosition = new Map();
+  for (const layer of state.detail?.layers || []) {
+    for (const gate of layer.gates || []) layersByPosition.set(gate.position, layer);
+  }
+}
 
 function gateAt(position) {
   return gatesByPosition.get(position) || null;
 }
 
-function gateLabel(position) {
-  const gate = gateAt(position);
-  if (!gate) return '—';
-  const qubits = (gate.qubits || []).map((q) => `q${q}`).join(',');
-  return qubits ? `${gate.gate}(${qubits})` : gate.gate;
+/** The layer a position belongs to. Gates in one layer touch no common
+ *  qubit and so run together; what is "active" at a point in the run is
+ *  the layer, not only the gate the cursor happens to be on. */
+function layerAt(position) {
+  return layersByPosition.get(position) || null;
 }
+
+const gateLabel = (position) => gateText(gateAt(position));
 
 /** Assertions carrying a position, resolved onto the waterfall's x axis. */
 function markers() {
@@ -139,8 +175,6 @@ const failedCount = () =>
 const unreliableCount = () =>
   (state.detail?.assertions || []).filter((a) => a.reliability?.reliable === false).length;
 
-const isUnreliable = (assertion) => assertion?.reliability?.reliable === false;
-
 function openGuide(topicId) {
   state.guideTopic = topicId;
   state.helpOpen = false;
@@ -165,7 +199,7 @@ async function loadRuns() {
 async function openRun(traceId) {
   state.traceId = traceId;
   state.detail = await api(`/api/circuit?trace_id=${encodeURIComponent(traceId)}`);
-  gatesByPosition = new Map(gateList().map((gate) => [gate.position, gate]));
+  indexCircuit();
   await loadWaterfall();
   stateCache.clear();
   // Open at the first gate so the transport starts where playback does,
@@ -176,6 +210,7 @@ async function openRun(traceId) {
   state.pinB = Math.max(positionCount() - 1, 0);
   state.openAssertion = null;
   state.focusedBasis = null;
+  state.expectationKey = null;
   await ensureState(currentPosition());
   await ensureState(positions()[state.pinB]);
 }
@@ -186,8 +221,103 @@ async function loadWaterfall() {
     threshold: String(state.threshold),
     max_rows: String(MAX_WATERFALL_ROWS),
   });
+  if (state.view) {
+    query.set('pos_from', String(state.view.from));
+    query.set('pos_to', String(state.view.to));
+  }
+  if (state.rowView) {
+    query.set('row_from', String(state.rowView.from));
+    query.set('row_to', String(state.rowView.to));
+  }
   state.waterfall = await api(`/api/waterfall?${query}`);
   state.heatmap = buildHeatmap(state.waterfall);
+}
+
+/* ---------- zoom ---------- */
+
+/** Refetch the field for the current viewport.
+ *
+ * The wheel fires far faster than a request round-trips, so gestures set
+ * the viewport and mark it dirty; this coalesces them into one fetch per
+ * settled gesture. The reduction runs against a grid already in memory
+ * server-side, so the request is cheap, but firing forty of them per
+ * scroll would still queue behind each other.
+ */
+let viewportTimer = 0;
+
+function applyViewport() {
+  clearTimeout(viewportTimer);
+  viewportTimer = setTimeout(async () => {
+    try {
+      await loadWaterfall();
+      trace('viewport.loaded', {
+        view: state.waterfall?.view, rowBand: state.waterfall?.row_band,
+        capped: state.waterfall?.capped,
+      });
+    } catch (error) {
+      state.error = String(error);
+      trace('viewport.failed', { error: String(error) });
+    }
+    render();
+  }, 50);
+  // Deliberately no render here. A render replaces the canvas, and the
+  // canvas is the element the gesture is bound to: re-rendering between
+  // two wheel notches detaches the surface mid-scroll and the rest of
+  // the gesture lands on an element with no size. The field updates when
+  // the gesture settles, which is also when there is anything new to
+  // draw.
+}
+
+const rowCount = () => state.waterfall?.kept_rows || 0;
+
+function zoomPositions(factor, at) {
+  const axis = positionAxis(state.waterfall);
+  const next = zoomRange({
+    from: state.view?.from ?? 0,
+    to: state.view?.to ?? axis.total,
+    total: axis.total,
+    factor,
+    at,
+  });
+  state.view = next.to - next.from >= axis.total ? null : next;
+  applyViewport();
+}
+
+function zoomRows(factor, at) {
+  const total = rowCount();
+  const next = zoomRange({
+    from: state.rowView?.from ?? 0,
+    to: state.rowView?.to ?? total,
+    total,
+    factor,
+    at,
+    minimum: 2,
+  });
+  state.rowView = next.to - next.from >= total ? null : next;
+  applyViewport();
+}
+
+function panPositions(by) {
+  if (!state.view) return;
+  const axis = positionAxis(state.waterfall);
+  state.view = panRange({ ...state.view, total: axis.total, by });
+  applyViewport();
+}
+
+/** Where the cursor sits across the current viewport, so keyboard zoom
+ *  holds the same point still that wheel zoom would. */
+function cursorFraction() {
+  const axis = positionAxis(state.waterfall);
+  if (axis.columns <= 1) return 0.5;
+  return Math.max(0, Math.min(1, (state.index - axis.from) / (axis.columns - 1)));
+}
+
+function resetViewport() {
+  trace('viewport.reset', { had: !!(state.view || state.rowView) });
+  if (!state.view && !state.rowView) return;
+  state.view = null;
+  state.rowView = null;
+  applyViewport();
 }
 
 /** Exact amplitudes at one position, memoised. The waterfall's planes
@@ -225,31 +355,16 @@ function requestState(position) {
 
 /* ---------- expectations ---------- */
 
-/** The reference distribution an assert_distribution recorded, expanded
- *  onto the full basis so it lines up with the observed bars. */
-function expectedVector(assertion) {
-  const expected = assertion?.expected;
-  if (!expected) return null;
-  const size = 1 << numQubits();
-  const vector = new Array(size).fill(0);
-  for (const [label, probability] of Object.entries(expected)) {
-    const index = parseInt(label, 2);
-    if (Number.isInteger(index) && index >= 0 && index < size) vector[index] = probability;
-  }
-  return vector;
-}
+const expectedVector = (assertion) => expandExpected(assertion, numQubits());
 
-/** The distribution assertion nearest the cursor, which is what the
- *  State tab ghosts behind the observed bars. */
+const expectationCandidates = () =>
+  rankExpectations(state.detail?.assertions || [], currentPosition());
+
+/** The check the State tab ghosts behind the observed bars: whichever one
+ *  the reader chose, otherwise the best candidate. */
 function nearestExpectation() {
-  const candidates = (state.detail?.assertions || []).filter((a) => a.expected);
-  if (!candidates.length) return null;
-  const here = currentPosition();
-  return candidates.reduce((best, a) => {
-    if (a.position === null || a.position === undefined) return best;
-    if (!best) return a;
-    return Math.abs(a.position - here) < Math.abs(best.position - here) ? a : best;
-  }, null) || candidates[0];
+  const chosen = chooseExpectation(expectationCandidates(), state.expectationKey);
+  return chosen ? chosen.a : null;
 }
 
 function nearestAssertion() {
@@ -273,11 +388,51 @@ function persist() {
   } catch { /* private browsing; the view still works */ }
 }
 
-function scrubTo(index) {
+/** Move the cursor.
+ *
+ * `live` updates the existing elements instead of rebuilding them, which
+ * is what a pointer gesture needs: a full render replaces the very
+ * surface the gesture is bound to, and every listener that runs after
+ * that in the same dispatch measures a detached element. Three defects
+ * traced back to exactly that. The gesture ends with one full render, so
+ * the panels that only a render refreshes still catch up.
+ */
+function scrubTo(index, { live: inPlace = false } = {}) {
   const limit = positionCount() - 1;
-  state.index = Math.max(0, Math.min(limit, index));
+  const next = Math.max(0, Math.min(limit, index));
+  trace('scrub.to', { asked: index, index: next, live: inPlace });
+  state.index = next;
   requestState(currentPosition());
-  refresh();
+  if (inPlace) tick(); else refresh();
+}
+
+/** Open the State tab on a position the reader picked out of the run.
+ *
+ * The overlay choice is released on the way in: a check pinned from
+ * somewhere else in the run would still be ghosted behind bars it has
+ * nothing to say about. Whatever check applies here is picked afresh.
+ *
+ * The state is fetched before the tab switches, so the panel arrives
+ * populated rather than flashing "loading…" at someone who just asked to
+ * see a specific place.
+ */
+function openState(index) {
+  state.expectationKey = null;
+  const position = positions()[index];
+  trace('state.open', { index, position });
+  ensureState(position)
+    .then(() => {
+      // The cursor is checked, not assumed: something else may have moved
+      // it while the amplitudes were being fetched, and switching tabs
+      // then would show a position nobody asked for.
+      const moved = state.index !== index;
+      trace('state.open.ready', { index, cursor: state.index, moved });
+      if (!moved) setTab('State');
+    })
+    .catch((error) => {
+      trace('state.open.failed', { index, error: String(error) });
+      setTab('State');
+    });
 }
 
 function step(delta) {
@@ -375,6 +530,7 @@ async function setThreshold(threshold) {
 }
 
 function setTab(name) {
+  trace('tab.set', { from: state.tab, to: name });
   if (name !== state.tab) state.focusedBasis = null;
   state.tab = name;
   // Leaving the timeline dismisses its tour rather than parking it to
@@ -387,24 +543,54 @@ function setTab(name) {
   render();
 }
 
-/** Position picked from a pointer along a full-width surface. */
-function pickFromEvent(event, element) {
+/** Position picked from a pointer along a full-width surface.
+ *
+ *  `viewport` surfaces span only the slice of the run on screen, so a
+ *  fraction across them is a fraction of the viewport rather than of the
+ *  run. The scrubber spans the run and passes nothing. */
+function pickFromEvent(event, element, { viewport = false } = {}) {
   const box = element.getBoundingClientRect();
   const fraction = (event.clientX - box.left) / Math.max(box.width, 1);
-  return Math.round(fraction * (positionCount() - 1));
+  if (!viewport) return Math.round(fraction * (positionCount() - 1));
+  const axis = positionAxis(state.waterfall);
+  return Math.max(0, Math.min(
+    positionCount() - 1,
+    axis.from + Math.round(fraction * (axis.columns - 1)),
+  ));
 }
 
-function scrubbable(element) {
+function scrubbable(element, options = {}) {
   const handle = (event) => {
     if (event.type === 'pointermove' && event.buttons !== 1) return;
+    if (event.shiftKey) return;  // shift-drag marks out a zoom instead
+    const box = element.getBoundingClientRect();
+    if (box.width <= 0) {
+      // The element was replaced earlier in this same dispatch. Acting on
+      // a zero-width box would put the cursor at the end of the run.
+      trace('scrub.detached', { type: event.type });
+      return;
+    }
     setPlaying(false);
-    scrubTo(pickFromEvent(event, element));
+    const index = pickFromEvent(event, element, options);
+    trace('scrub.pointer', { type: event.type, index, width: Math.round(box.width) });
+    scrubTo(index, { live: true });
+    scrubbing = true;
   };
   element.addEventListener('pointerdown', handle);
   element.addEventListener('pointermove', handle);
   element.classList.add('scrubbable');
   return element;
 }
+
+// One full render when a scrub gesture settles, so panels that only a
+// render refreshes are not left describing where the cursor used to be.
+let scrubbing = false;
+window.addEventListener('pointerup', () => {
+  if (!scrubbing) return;
+  scrubbing = false;
+  trace('scrub.settled', { index: state.index });
+  render();
+});
 
 document.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
@@ -414,6 +600,13 @@ document.addEventListener('keydown', (event) => {
   else if (event.key === 'ArrowLeft') { event.preventDefault(); event.shiftKey ? jumpAssertion(-1) : step(-1); }
   else if (event.key === 'Home') { event.preventDefault(); step(-positionCount()); }
   else if (event.key === 'End') { event.preventDefault(); step(positionCount()); }
+  else if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomPositions(0.8, cursorFraction()); }
+  else if (event.key === '-' || event.key === '_') { event.preventDefault(); zoomPositions(1.25, cursorFraction()); }
+  else if (event.key === '0') { event.preventDefault(); resetViewport(); }
+  else if (event.key === 'Escape' && (state.view || state.rowView) && !state.helpOpen) {
+    event.preventDefault();
+    resetViewport();
+  }
   else if (event.key === 'Escape' && state.helpOpen) { state.helpOpen = false; render(); }
   else if (/^[1-4]$/.test(event.key)) setTab(TABS[Number(event.key) - 1]);
 });
@@ -536,16 +729,36 @@ function waterfallPanel(geo) {
     width: geo.waterfallWidth, height: geo.waterfallHeight,
   };
   drawWaterfall(canvas, { ...waterfallArgs, index: state.index, marks: markers() });
-  scrubbable(canvas);
   live = { canvas, waterfallArgs, stripWidth: geo.waterfallWidth };
 
   const rowsPerPixel = waterfall.kept_rows / geo.waterfallHeight;
   const qubits = numQubits();
 
+  const axis = positionAxis(waterfall);
+  const zoomedRows = waterfall.view_rows < waterfall.kept_rows;
+
   return panel('Amplitude waterfall', [
-    tag(`${waterfall.num_positions} positions · true resolution`),
-    tag(`${waterfall.num_states} basis states`),
-    rowsPerPixel > 2 ? status('warn', `${rowsPerPixel.toFixed(1)} rows per pixel`) : null,
+    // What is on screen, said plainly whenever it is not the whole run.
+    axis.zoomed
+      ? tag(`positions ${positions()[axis.from]}–${positions()[axis.to - 1]} of ${waterfall.num_positions}`)
+      : tag(`${waterfall.num_positions} positions · true resolution`),
+    zoomedRows
+      ? tag(`states ${waterfall.first_row_state}–${waterfall.last_row_state} of ${waterfall.num_states}`)
+      : tag(`${waterfall.num_states} basis states`),
+    // A row standing for several states is the one thing a reader cannot
+    // see for themselves, so it is said rather than implied.
+    waterfall.row_band > 1
+      ? status('warn', `1 row = ${waterfall.row_band} states`)
+      : null,
+    waterfall.capped
+      ? status('warn', 'capped')
+      : null,
+    axis.zoomed || zoomedRows
+      ? button('Reset zoom', { variant: 'secondary', onClick: resetViewport })
+      : null,
+    rowsPerPixel > 2 && waterfall.row_band <= 1
+      ? status('warn', `${rowsPerPixel.toFixed(1)} rows per pixel`)
+      : null,
     iconButton('◎', 'Point out the parts of this panel', {
       onClick: () => { state.helpOpen = true; state.guideTopic = null; render(); },
     }),
@@ -559,13 +772,260 @@ function waterfallPanel(geo) {
         h('span', {}, ket(waterfall.first_row_state, qubits)),
         h('span', {}, ket(waterfall.last_row_state, qubits)),
       ),
-      h('div', { style: { flex: '1', minWidth: '0' } },
-        canvas,
-        h('div', { style: { marginTop: 'var(--space-3)' } }, gateStrip(geo)),
-      ),
+      hoverStack(geo, canvas),
     ),
-    h('div', { class: 'controls' }, collapseBar(), transport()),
+    h('div', { class: 'controls' }, collapseBar(), transport(), fieldHints()),
   );
+}
+
+/** What the field responds to.
+ *
+ * None of these gestures announce themselves: a canvas looks the same
+ * whether or not it zooms. Naming them under the transport, where the
+ * other controls already are, costs one line and is the difference
+ * between a feature existing and a feature being used.
+ */
+function fieldHints() {
+  const hint = (keys, what) => h('span', { class: 'field-hint' },
+    h('kbd', {}, keys), what);
+  return h('div', { class: 'control-row field-hints' },
+    hint('drag', 'scrub'),
+    hint('double-click', 'open state'),
+    hint('scroll', 'zoom'),
+    hint('shift+scroll', 'zoom states'),
+    hint('shift+drag', 'zoom to region'),
+    hint('+ −', 'zoom'),
+    hint('0', 'reset'),
+  );
+}
+
+/** The field and the strip stacked on one x axis, with the hover readout
+ *  and its rule spanning both. */
+function hoverStack(geo, canvas) {
+  const strip = gateStrip(geo);
+  // Before scrubbing is wired up, and that order matters: scrubbing
+  // re-renders, which detaches these surfaces mid-dispatch, and a
+  // listener that runs afterwards measures an element with no size.
+  const [rule, tip] = columnHover([canvas, strip], geo.waterfallWidth);
+  scrubbable(canvas, { viewport: true });
+  scrubbable(strip, { viewport: true });
+  const marquee = h('div', { class: 'wf-marquee', hidden: true });
+  const stack = h('div', { class: 'wf-stack' },
+    canvas,
+    h('div', { style: { marginTop: 'var(--space-3)' } }, strip),
+    rule,
+    marquee,
+    tip,
+  );
+  zoomable(stack, [canvas, strip], canvas, marquee);
+  return stack;
+}
+
+/** Wheel to zoom, shift-drag to frame a region, and the keyboard for
+ *  both.
+ *
+ * Zooming holds whatever is under the pointer still, so the thing being
+ * examined does not slide out from under the cursor on the way in. The
+ * position axis is what the wheel reaches, because time is what people
+ * scan along; rows take the same gesture with shift, since which basis
+ * state is which matters only once you already care about a region.
+ */
+function zoomable(stack, surfaces, field, marquee) {
+  for (const surface of surfaces) {
+    surface.addEventListener('wheel', (event) => {
+      if (!state.waterfall) return;
+      event.preventDefault();
+      const box = surface.getBoundingClientRect();
+      const at = Math.max(0, Math.min(1, (event.clientX - box.left) / Math.max(box.width, 1)));
+      const factor = event.deltaY < 0 ? 0.8 : 1.25;
+      trace('zoom.wheel', { rows: event.shiftKey, factor, at: Number(at.toFixed(3)) });
+      if (event.shiftKey) {
+        const down = Math.max(0, Math.min(1, (event.clientY - box.top) / Math.max(box.height, 1)));
+        zoomRows(factor, down);
+      } else {
+        zoomPositions(factor, at);
+      }
+    }, { passive: false });
+  }
+
+  // Shift-drag frames a region. Plain drag already scrubs, so the
+  // modifier keeps one surface doing two things without either
+  // shadowing the other.
+  let origin = null;
+  field.addEventListener('pointerdown', (event) => {
+    if (!event.shiftKey || !state.waterfall) return;
+    event.preventDefault();
+    const box = field.getBoundingClientRect();
+    origin = { box, x: event.clientX, y: event.clientY };
+    marquee.hidden = false;
+    paintMarquee(marquee, stack, origin, event);
+  });
+  window.addEventListener('pointermove', (event) => {
+    if (!origin) return;
+    paintMarquee(marquee, stack, origin, event);
+  });
+  window.addEventListener('pointerup', (event) => {
+    if (!origin) return;
+    const { box } = origin;
+    marquee.hidden = true;
+    const fraction = (a, b, size) => [
+      Math.max(0, Math.min(1, (a - b) / Math.max(size, 1))),
+    ][0];
+    const ax = fraction(origin.x, box.left, box.width);
+    const bx = fraction(event.clientX, box.left, box.width);
+    const ay = fraction(origin.y, box.top, box.height);
+    const by = fraction(event.clientY, box.top, box.height);
+    origin = null;
+    trace('zoom.marquee', {
+      ax: Number(ax.toFixed(3)), bx: Number(bx.toFixed(3)),
+      ay: Number(ay.toFixed(3)), by: Number(by.toFixed(3)),
+    });
+    if (Math.abs(bx - ax) < 0.005 && Math.abs(by - ay) < 0.005) return;
+
+    const axis = positionAxis(state.waterfall);
+    const next = rangeFromFractions({
+      from: axis.from, to: axis.to, total: axis.total, a: ax, b: bx,
+    });
+    state.view = next.to - next.from >= axis.total ? null : next;
+
+    const rows = rowCount();
+    const rowFrom = state.rowView?.from ?? 0;
+    const rowTo = state.rowView?.to ?? rows;
+    const nextRows = rangeFromFractions({
+      from: rowFrom, to: rowTo, total: rows, a: ay, b: by, minimum: 2,
+    });
+    state.rowView = nextRows.to - nextRows.from >= rows ? null : nextRows;
+    applyViewport();
+  });
+}
+
+function paintMarquee(marquee, stack, origin, event) {
+  const frame = stack.getBoundingClientRect();
+  const left = Math.min(origin.x, event.clientX) - frame.left;
+  const top = Math.min(origin.y, event.clientY) - frame.top;
+  Object.assign(marquee.style, {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${Math.abs(event.clientX - origin.x)}px`,
+    height: `${Math.abs(event.clientY - origin.y)}px`,
+  });
+}
+
+/** Name what is happening at the column under the pointer.
+ *
+ * The waterfall and the strip share one x axis, and neither could say
+ * what a column was: the field is texture and the strip's ticks are
+ * deliberately unlabelled, so a break in the amplitudes could be seen but
+ * not attributed. Hovering either surface names the gate, its parameters,
+ * the layer it runs in, and any check recorded there.
+ *
+ * The layer matters as much as the gate. Gates in one layer share no
+ * qubit and so run together, which makes the layer, not the single gate
+ * the cursor landed on, the honest answer to what is active at a point.
+ */
+function columnHover(surfaces, width) {
+  const tip = h('div', { class: 'gate-tip', hidden: true });
+  const rule = h('div', { class: 'gate-rule', hidden: true });
+  const list = positions();
+  const axis = positionAxis(state.waterfall);
+  const columns = axis.columns;
+
+  const show = (index) => {
+    const position = list[index];
+    const gate = gateAt(position);
+    const layer = layerAt(position);
+    const params = paramText(gate);
+    // Every check here, not the first: a position can hold both a passing
+    // and a failing one, and showing only the passing one would report
+    // the run as fine at the point it broke.
+    const marks = markers().filter((m) => m.index === index);
+    const others = alongside(layer, position);
+
+    clear(tip);
+    // Built through h() rather than appended straight to the element: the
+    // DOM's own append writes a null child out as the text "null".
+    tip.append(h('div', { class: 'gate-tip-body' },
+      h('div', { class: 'gate-tip-head' },
+        h('span', { class: 'gate-tip-name' }, gateText(gate)),
+        params ? h('span', { class: 'gate-tip-params' }, params) : null,
+      ),
+      h('div', { class: 'gate-tip-rows' },
+        h('span', { class: 'micro' }, 'position'),
+        h('span', {}, `${position} of ${list[list.length - 1]}`),
+        layer ? h('span', { class: 'micro' }, 'layer') : null,
+        layer ? h('span', {}, `${layer.index}`) : null,
+      ),
+      others.length
+        ? h('div', { class: 'gate-tip-layer' },
+          h('span', { class: 'micro' },
+            `runs alongside ${others.length} gate${others.length === 1 ? '' : 's'}`),
+          h('span', { class: 'gate-tip-list' },
+            others.slice(0, 6).map(gateText).join('  ')
+            + (others.length > 6 ? `  +${others.length - 6} more` : '')),
+        )
+        : null,
+      marks.length
+        ? h('div', { class: 'gate-tip-mark' },
+          marks.map((mark) =>
+            status(mark.pass ? 'pass' : 'fail', mark.assertion.assertion)))
+        : null,
+      // A gesture nobody is told about is a gesture nobody uses, and the
+      // readout is already where their attention is.
+      h('div', { class: 'gate-tip-hint' },
+        state.waterfall?.row_band > 1
+          ? `each row here is ${state.waterfall.row_band} basis states · double-click to open this state`
+          : 'double-click to open this state'),
+    ));
+    tip.hidden = false;
+
+    const x = columnX(index, axis, width);
+    rule.style.left = `${x}px`;
+    rule.hidden = false;
+    // Flip to the left of the cursor near the right edge, so the readout
+    // never leaves the panel it describes.
+    const tipWidth = 260;
+    tip.style.left = `${Math.max(0, Math.min(x + 12, width - tipWidth))}px`;
+  };
+
+  const hide = () => { tip.hidden = true; rule.hidden = true; };
+
+  for (const surface of surfaces) {
+    surface.addEventListener('pointermove', (event) => {
+      // Same column arithmetic the bar charts use: both map a pointer
+      // across a fixed-width surface onto one of N equal slots.
+      const column = barAtPointer(event, surface, columns);
+      if (column === null) { hide(); return; }
+      show(columnIndex(column, axis));
+    });
+    surface.addEventListener('pointerleave', hide);
+    // Hover says what happened at a column; double-click goes and looks.
+    //
+    // Timed here rather than through the browser's own `dblclick`, which
+    // never fires on these surfaces: the first click scrubs, scrubbing
+    // re-renders, and the replacement canvas is a different element from
+    // the one that took the first click. A `dblclick` needs both clicks
+    // on one element, so the event the browser would have raised is lost
+    // to the redraw between them.
+    surface.addEventListener('pointerdown', (event) => {
+      if (event.shiftKey) return;
+      const column = barAtPointer(event, surface, columns);
+      if (column === null) return;
+      const index = columnIndex(column, axis);
+      const now = performance.now();
+      const quick = now - lastClick.at < DOUBLE_CLICK_MS;
+      const near = Math.abs(index - lastClick.index) <= 1;
+      trace('column.click', { index, quick, near, since: Math.round(now - lastClick.at) });
+      lastClick = { at: now, index };
+      if (!quick || !near) return;
+      lastClick = { at: 0, index: -1 };  // a third click starts over
+      trace('column.doubleclick', { index });
+      hide();
+      setPlaying(false);
+      scrubTo(index, { live: true });
+      openState(index);
+    });
+  }
+  return [rule, tip];
 }
 
 function gateStrip(geo) {
@@ -573,8 +1033,10 @@ function gateStrip(geo) {
   const height = geo.stripHeight;
   const qubits = numQubits();
   const list = positions();
-  const columns = Math.max(list.length, 1);
-  const xAt = (index) => ((index + 0.5) / columns) * width;
+  // The strip shares the field's x axis, viewport and all, which is the
+  // whole point of it sitting underneath.
+  const axis = positionAxis(state.waterfall);
+  const xAt = (index) => columnX(index, axis, width);
 
   const nodes = [];
   for (let q = 0; q < qubits; q++) {
@@ -585,9 +1047,12 @@ function gateStrip(geo) {
   }
   // One tick per gate on the wire it acted on, with a spine joining the
   // wires of a multi-qubit gate. At 400 gates across 1200px the ticks
-  // merge into texture, which is the intent: the shape of the circuit,
-  // not a legible per-gate diagram.
+  // merge into texture, which is the intent at that distance: the shape
+  // of the circuit rather than a legible per-gate diagram. Zoomed in,
+  // the ticks widen with their columns and the diagram comes back.
+  const tick = Math.max(2, Math.min(12, (width / axis.columns) * 0.5));
   for (let i = 0; i < list.length; i++) {
+    if (!inView(i, axis)) continue;
     const gate = gateAt(list[i]);
     if (!gate) continue;
     const qubitsOn = gate.qubits || [];
@@ -600,15 +1065,17 @@ function gateStrip(geo) {
         stroke: colour, 'stroke-width': 1, opacity: 0.45,
       }));
       nodes.push(svg('rect', {
-        x: x - 1, y: ys[ys.length - 1] - 2.5, width: 2, height: 5, fill: colour,
+        x: x - tick / 2, y: ys[ys.length - 1] - 2.5, width: tick, height: 5, fill: colour,
       }));
     } else if (qubitsOn.length === 1) {
       nodes.push(svg('rect', {
-        x: x - 1, y: 6 + qubitsOn[0] * geo.laneHeight - 2.5, width: 2, height: 5, fill: colour,
+        x: x - tick / 2, y: 6 + qubitsOn[0] * geo.laneHeight - 2.5,
+        width: tick, height: 5, fill: colour,
       }));
     }
   }
   for (const mark of markers()) {
+    if (!inView(mark.index, axis)) continue;
     nodes.push(svg('rect', {
       x: xAt(mark.index) - 1.5, y: 0, width: 3, height,
       fill: mark.pass ? 'var(--pass-9)' : 'var(--fail-9)',
@@ -618,11 +1085,14 @@ function gateStrip(geo) {
   const head = svg('line', {
     x1: xAt(state.index), y1: 0, x2: xAt(state.index), y2: height,
     stroke: 'var(--accent-9)', 'stroke-width': 1.5,
+    opacity: inView(state.index, axis) ? 1 : 0,
   });
   nodes.push(head);
   if (live) live.stripHead = head;
 
-  return scrubbable(svg('svg', { width, height, style: 'display:block' }, nodes));
+  // Returned bare: hoverStack wires scrubbing on, after the hover and
+  // double-click listeners, so those run before a scrub detaches this.
+  return svg('svg', { width, height, style: 'display:block' }, nodes);
 }
 
 function collapseBar() {
@@ -693,9 +1163,20 @@ function scrubBar() {
   const fill = h('div', { class: 'scrub-fill', style: { width: percent(state.index) } });
   const headMark = h('div', { class: 'scrub-head', style: { left: percent(state.index) } });
   if (live) { live.scrubFill = fill; live.scrubHead = headMark; }
+  // The transport always spans the run, so it is where the zoomed field
+  // says which part of the run it is looking at.
+  const axis = positionAxis(state.waterfall);
+  const window = axis.zoomed
+    ? h('div', {
+      class: 'scrub-window',
+      title: `field shows positions ${positions()[axis.from]}–${positions()[axis.to - 1]}`,
+      style: { left: percent(axis.from), width: `${((axis.to - axis.from) / last) * 100}%` },
+    })
+    : null;
   const bar = h('div', { class: 'scrub' },
     h('div', { class: 'scrub-track' },
       fill,
+      window,
       markers().map((mark) => h('div', {
         class: 'scrub-mark',
         title: `${mark.assertion.assertion} · ${mark.pass ? 'pass' : 'fail'}`,
@@ -783,14 +1264,6 @@ function legendSwatch(label, colour, dashed) {
     label);
 }
 
-function assertionDetail(assertion) {
-  if (assertion.error?.message) return assertion.error.message;
-  if (assertion.assertion === 'assert_distribution') return 'observed distribution within tolerance';
-  if (assertion.assertion === 'assert_unitary') return 'U†U is the identity within tolerance';
-  if (assertion.assertion === 'assert_equivalent') return 'both circuits compute the same unitary';
-  return 'passed';
-}
-
 const METRIC_LABELS = {
   statistic: 'statistic', p_value: 'p-value', tolerance: 'tolerance',
   shots: 'shots', deviation: 'deviation', atol: 'atol',
@@ -814,8 +1287,10 @@ function stateTab(geo) {
   if (!record) return [panel('Statevector', [], h('p', { class: 'readout lo' }, 'loading…'))];
   const qubits = numQubits();
   const size = record.probabilities.length;
+  const candidates = expectationCandidates();
   const expectation = nearestExpectation();
   const expected = state.overlay ? expectedVector(expectation) : null;
+  const chosen = candidates.find(({ a }) => a === expectation);
 
   const bars = interactiveBars({
     observed: record.probabilities, expected, hues: record.hues,
@@ -823,15 +1298,7 @@ function stateTab(geo) {
     onFocus: render,
   });
 
-  const divergences = record.probabilities
-    .map((probability, index) => ({
-      index, hue: record.hues[index], probability,
-      delta: expected ? probability - expected[index] : null,
-    }))
-    .sort((a, b) => (expected
-      ? Math.abs(b.delta) - Math.abs(a.delta)
-      : b.probability - a.probability))
-    .slice(0, 16);
+  const divergences = rankDivergences(record.probabilities, expected, record.hues);
 
   return [
     panel(`Statevector — position ${currentPosition()}`, [
@@ -845,6 +1312,17 @@ function stateTab(geo) {
       expectation ? toggle('Overlay expected', state.overlay, (checked) => {
         state.overlay = checked; persist(); render();
       }) : null,
+      // More than one check can apply here, and they can expect different
+      // things. Naming the one on screen beats silently picking.
+      state.overlay && candidates.length > 1
+        ? segmented(
+          candidates.map((candidate) => ({
+            label: expectationLabel(candidate), value: candidate.key,
+          })),
+          chosen?.key,
+          (key) => { state.expectationKey = key; render(); },
+        )
+        : null,
       tag(`${size} states`),
       button('Back to timeline', { onClick: () => setTab('Timeline') }),
     ],
@@ -853,7 +1331,11 @@ function stateTab(geo) {
     ),
     panel(expected ? 'Largest divergences' : 'Largest amplitudes', [
       tag(expected ? 'sorted by |Δ probability|' : 'sorted by probability'),
-      expectation ? tag(`expected from ${expectation.assertion}`) : null,
+      expectation
+        ? tag(`expected from ${expectation.assertion}`
+          + `${expectation.method ? ` · ${expectation.method}` : ''}`
+          + `${expectation.position === null || expectation.position === undefined ? '' : ` at ${expectation.position}`}`)
+        : null,
     ],
       h('div', {
         class: 'divergence-grid',
@@ -1126,32 +1608,7 @@ const columnTemplate = () => columnWidths()
   .map((width, i) => (COLUMNS[i].key === 'detail' ? `minmax(${MIN_COLUMN}px, 1fr)` : `${width}px`))
   .join(' ');
 
-/** The value a column sorts on. Position sorts numerically; an absent
- *  position sorts last rather than as zero, which would put unpositioned
- *  checks among the earliest gates. */
-function sortValue(assertion, key) {
-  if (key === 'position') {
-    const value = assertion.position;
-    return value === null || value === undefined ? Number.POSITIVE_INFINITY : value;
-  }
-  if (key === 'detail') return assertionDetail(assertion).toLowerCase();
-  if (key === 'source') return (assertion.source || '').toLowerCase();
-  return String(assertion[key] ?? '').toLowerCase();
-}
-
-function sortedAssertions(assertions) {
-  const { key, direction } = state.sort;
-  if (!key) return assertions.map((a, index) => ({ a, index }));
-  const rows = assertions.map((a, index) => ({ a, index }));
-  rows.sort((x, y) => {
-    const left = sortValue(x.a, key);
-    const right = sortValue(y.a, key);
-    if (left < right) return -direction;
-    if (left > right) return direction;
-    return x.index - y.index;  // stable: recorded order breaks ties
-  });
-  return rows;
-}
+const sortedAssertions = (assertions) => sortRows(assertions, state.sort);
 
 function toggleSort(key) {
   const { key: current, direction } = state.sort;
@@ -1265,11 +1722,11 @@ function assertionRow(assertion, key, geo) {
     class: `td${open ? ' td-open' : ''}`, onClick: onOpen,
   }, cell));
 
-  return open ? [...row, detailRow(assertion, hasPosition, record, geo)] : row;
+  return open ? [...row, detailRow(assertion, key, hasPosition, record, geo)] : row;
 }
 
 /** The expanded body, spanning every column. */
-function detailRow(assertion, hasPosition, record, geo) {
+function detailRow(assertion, key, hasPosition, record, geo) {
   const canvas = h('canvas');
   if (record) {
     drawBars(canvas, {
@@ -1293,6 +1750,20 @@ function detailRow(assertion, hasPosition, record, geo) {
             variant: 'secondary',
             onClick: () => { scrubTo(positions().indexOf(assertion.position)); setTab('Timeline'); },
           }) : null,
+          // Carries this check across as the overlay, so the bars are
+          // measured against what THIS check expected rather than
+          // whichever one the State tab would have picked on its own.
+          hasPosition && assertion.expected ? button('Open state', {
+            variant: 'secondary',
+            title: 'Show the statevector here against what this check expected',
+            onClick: () => {
+              scrubTo(positions().indexOf(assertion.position));
+              state.expectationKey = key;
+              state.overlay = true;
+              persist();
+              setTab('State');
+            },
+          }) : null,
           hasPosition ? button('Pin as B in diff', {
             onClick: () => { state.pinB = positions().indexOf(assertion.position); setTab('Diff'); },
           }) : null,
@@ -1301,11 +1772,6 @@ function detailRow(assertion, hasPosition, record, geo) {
     ),
   );
 }
-
-/** Marks at 0 and 100 percent would sit half outside the frame, so the
- *  track is inset by a mark's width at each end. */
-const coveragePercent = (index, last) =>
-  `calc(2px + ${(index / last) * 100}% - ${(index / last) * 4}px)`;
 
 function coveragePanel(assertions) {
   const list = positions();
@@ -1468,15 +1934,6 @@ function helpOverlay() {
 const clampLeft = (left, width) =>
   Math.max(8, Math.min(left, (document.getElementById('body')?.clientWidth || 0) - width - 8));
 
-/** Left edge for a note sitting beside an anchor, on whichever side has
- *  room. An anchor near a frame edge would otherwise pin its note
- *  against that edge, away from the thing it points at. */
-function besideAnchor(anchorX, width, frameWidth, gutter = 28) {
-  const toTheRight = anchorX + gutter;
-  if (toTheRight + width + 8 <= frameWidth) return toTheRight;
-  return Math.max(8, anchorX - gutter - width);
-}
-
 function helpTitle(position, dismiss) {
   return h('div', {
     class: 'help-title',
@@ -1591,6 +2048,7 @@ function correctGeometry(body) {
   if (correcting) { correcting = false; return; }
   const panel = body.querySelector('.panel');
   if (!panel) return;
+  watchPanel(panel);
   const style = getComputedStyle(panel);
   const inner = panel.clientWidth
     - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
@@ -1599,6 +2057,39 @@ function correctGeometry(body) {
   measuredContent = inner;
   correcting = true;
   render();
+}
+
+let panelObserver = null;
+let watchedPanel = null;
+
+/** Re-measure whenever the panel itself changes width.
+ *
+ * A window resize is not the only thing that moves a panel: the bundled
+ * webfonts swap in after first paint and reflow the page with no event of
+ * their own, which used to leave the canvases drawn at whatever width the
+ * fallback font produced. Watching the element catches that, and anything
+ * else that reflows without asking.
+ */
+function watchPanel(panel) {
+  if (panel === watchedPanel) return;
+  if (!panelObserver) {
+    if (typeof ResizeObserver !== 'function') return;
+    panelObserver = new ResizeObserver(() => {
+      // Only a real change; the observer fires on the correction render
+      // too, and re-rendering on that would never settle.
+      if (!watchedPanel) return;
+      const style = getComputedStyle(watchedPanel);
+      const inner = watchedPanel.clientWidth
+        - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      if (!Number.isFinite(inner) || inner <= 0) return;
+      if (Math.abs(inner - measuredContent) < 2) return;
+      measuredContent = inner;
+      refresh();
+    });
+  }
+  if (watchedPanel) panelObserver.unobserve(watchedPanel);
+  watchedPanel = panel;
+  panelObserver.observe(panel);
 }
 
 /** Bring every dismissed piece of guidance back. Someone who clicked a
@@ -1677,7 +2168,7 @@ function listen() {
     if (summary.trace_id === state.traceId) {
       try {
         state.detail = await api(`/api/circuit?trace_id=${encodeURIComponent(state.traceId)}`);
-        gatesByPosition = new Map(gateList().map((gate) => [gate.position, gate]));
+        indexCircuit();
       } catch { /* the run may be mid-write; the next event catches up */ }
     }
     render();
@@ -1686,6 +2177,8 @@ function listen() {
 }
 
 async function boot() {
+  installDebug(window);
+  trace('boot');
   render();
   try {
     state.health = await api('/api/health');
@@ -1695,6 +2188,7 @@ async function boot() {
   } catch (error) {
     state.loading = false;
     state.error = String(error.message || error);
+    trace('boot.failed', { error: String(error.message || error) });
   }
   render();
   listen();

@@ -29,7 +29,10 @@ def write(path: Path, columns: list[np.ndarray]) -> Path:
 
 
 def planes(payload: dict) -> tuple[np.ndarray, np.ndarray]:
-    shape = (payload["rows"], payload["num_positions"])
+    # Columns come from the viewport actually served, not the run's total:
+    # a zoomed payload has fewer columns than the run has positions.
+    view = payload["view"]
+    shape = (payload["rows"], view["pos_to"] - view["pos_from"])
     return (
         np.frombuffer(base64.b64decode(payload["magnitude"]), dtype=np.uint8).reshape(shape),
         np.frombuffer(base64.b64decode(payload["phase"]), dtype=np.uint8).reshape(shape),
@@ -285,3 +288,206 @@ def test_segments_suppressed_when_every_kept_row_is_isolated(tmp_path: Path) -> 
     payload = waterfall.build(path, num_qubits=9, max_rows=1024, threshold=0.05)
     assert payload["kept_rows"] == 47
     assert payload["segments"] == []
+
+
+# -- viewport ----------------------------------------------------------
+
+
+def ramp(states: int, positions: int) -> list[np.ndarray]:
+    """A run where every cell is distinguishable, so a slice can be
+    checked against the exact cells it should contain."""
+    return [
+        np.array([(row + 1) * (column + 1) for row in range(states)], dtype=np.complex128)
+        for column in range(positions)
+    ]
+
+
+def test_no_viewport_is_the_whole_run(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.npz", ramp(8, 5))
+    payload = waterfall.build(path, num_qubits=3, max_rows=512, threshold=0)
+    assert payload["view"] == {"row_from": 0, "row_to": 8, "pos_from": 0, "pos_to": 5}
+    assert payload["view_positions"] == [0, 1, 2, 3, 4]
+
+
+def test_an_inverted_range_falls_back_to_everything(tmp_path: Path) -> None:
+    """A drag from right to left names its bounds backwards. Showing
+    nothing would be a worse answer than showing the run."""
+    path = write(tmp_path / "a.npz", ramp(8, 5))
+    payload = waterfall.build(
+        path, num_qubits=3, max_rows=512, threshold=0, pos_from=4, pos_to=1
+    )
+    assert payload["view"]["pos_from"] == 0
+    assert payload["view"]["pos_to"] == 5
+
+
+def test_a_range_past_the_end_is_clamped_not_refused(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.npz", ramp(8, 5))
+    payload = waterfall.build(
+        path, num_qubits=3, max_rows=512, threshold=0, pos_from=3, pos_to=900
+    )
+    assert payload["view"] == {"row_from": 0, "row_to": 8, "pos_from": 3, "pos_to": 5}
+    assert payload["view_positions"] == [3, 4]
+
+
+def test_a_range_entirely_past_the_end_clamps_to_the_end(tmp_path: Path) -> None:
+    """A live run that reloaded shorter leaves a viewport hanging off the
+    end. Someone watching the end of a run should stay at the end of it,
+    not be zoomed back out to the whole thing."""
+    path = write(tmp_path / "a.npz", ramp(8, 5))
+    payload = waterfall.build(
+        path, num_qubits=3, max_rows=512, threshold=0, pos_from=90, pos_to=99
+    )
+    assert payload["view"]["pos_from"] == 4
+    assert payload["view"]["pos_to"] == 5
+    assert payload["view_positions"] == [4]
+
+
+def test_a_zero_width_range_falls_back_to_everything(tmp_path: Path) -> None:
+    """A click that registered as a drag names a range of nothing, and a
+    field of zero columns is not a view of anything."""
+    path = write(tmp_path / "a.npz", ramp(8, 5))
+    payload = waterfall.build(
+        path, num_qubits=3, max_rows=512, threshold=0, pos_from=2, pos_to=2
+    )
+    assert payload["view"]["pos_from"] == 0
+    assert payload["view"]["pos_to"] == 5
+
+
+def test_a_negative_bound_is_clamped_to_the_start(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.npz", ramp(8, 5))
+    payload = waterfall.build(
+        path, num_qubits=3, max_rows=512, threshold=0, row_from=-40, row_to=3
+    )
+    assert payload["view"]["row_from"] == 0
+    assert payload["view"]["row_to"] == 3
+
+
+def test_an_empty_run_survives_a_viewport(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.npz", [])
+    payload = waterfall.build(
+        path, num_qubits=0, max_rows=512, threshold=0, row_from=2, row_to=4
+    )
+    assert payload["rows"] == 0
+    assert payload["view"] == {"row_from": 0, "row_to": 0, "pos_from": 0, "pos_to": 0}
+
+
+def test_a_position_slice_returns_only_those_columns(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.npz", ramp(4, 10))
+    payload = waterfall.build(
+        path, num_qubits=2, max_rows=512, threshold=0, pos_from=6, pos_to=9
+    )
+    magnitude, _ = planes(payload)
+    assert magnitude.shape == (4, 3)
+    assert payload["view_positions"] == [6, 7, 8]
+    # The run's own axis stays whole: the transport spans the run, not the
+    # viewport.
+    assert payload["num_positions"] == 10
+    assert payload["positions"] == list(range(10))
+
+
+def test_a_row_slice_returns_only_those_basis_states(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.npz", ramp(16, 4))
+    payload = waterfall.build(
+        path, num_qubits=4, max_rows=512, threshold=0, row_from=5, row_to=9
+    )
+    magnitude, _ = planes(payload)
+    assert magnitude.shape == (4, 4)
+    assert payload["first_row_state"] == 5
+    assert payload["last_row_state"] == 8
+    assert payload["num_states"] == 16
+
+
+def test_zooming_far_enough_stops_banding_on_its_own(tmp_path: Path) -> None:
+    """The whole design in one test: there is no mode to switch, only a
+    span that eventually fits the display."""
+    path = write(tmp_path / "a.npz", ramp(64, 3))
+    whole = waterfall.build(path, num_qubits=6, max_rows=16, threshold=0)
+    assert whole["rows"] == 16
+    assert whole["row_band"] == 4, "64 states into 16 rows is 4 states a row"
+
+    zoomed = waterfall.build(
+        path, num_qubits=6, max_rows=16, threshold=0, row_from=20, row_to=32
+    )
+    assert zoomed["rows"] == 12
+    assert zoomed["row_band"] == 1, "12 states into 16 rows is one state a row"
+
+
+def test_a_zoomed_slice_holds_the_cells_it_names(tmp_path: Path) -> None:
+    """Unbanded, a row is a basis state and a column is a position, so the
+    served plane must be the grid's own cells and not a neighbour's."""
+    path = write(tmp_path / "a.npz", ramp(32, 6))
+    whole = waterfall.build(path, num_qubits=5, max_rows=512, threshold=0)
+    zoomed = waterfall.build(
+        path, num_qubits=5, max_rows=512, threshold=0,
+        row_from=8, row_to=12, pos_from=2, pos_to=5,
+    )
+    whole_mag, whole_phase = planes(whole)
+    zoom_mag, zoom_phase = planes(zoomed)
+    assert zoomed["row_band"] == 1
+    np.testing.assert_array_equal(zoom_mag, whole_mag[8:12, 2:5])
+    np.testing.assert_array_equal(zoom_phase, whole_phase[8:12, 2:5])
+
+
+def test_brightness_is_scaled_against_the_run_not_the_viewport(tmp_path: Path) -> None:
+    """Peak comes from the whole grid. Rescaling per viewport would make a
+    dim region look bright the moment it was the only thing on screen, and
+    a reader comparing two zoom levels would be comparing two scales."""
+    path = write(tmp_path / "a.npz", ramp(16, 4))
+    whole = waterfall.build(path, num_qubits=4, max_rows=512, threshold=0)
+    zoomed = waterfall.build(
+        path, num_qubits=4, max_rows=512, threshold=0, row_from=0, row_to=4
+    )
+    assert zoomed["peak"] == whole["peak"]
+    assert zoomed["maximum"] == whole["maximum"]
+
+
+def test_a_viewport_indexes_kept_rows_not_basis_states(tmp_path: Path) -> None:
+    """With a threshold on, the rows on screen are the surviving ones, so
+    a viewport counts those. Indexing basis states instead would make a
+    drag land somewhere other than where it was released."""
+    columns = [np.array([1.0, 1e-9, 1.0, 1e-9, 1.0, 1e-9, 1.0, 1e-9])]
+    path = write(tmp_path / "a.npz", columns)
+    payload = waterfall.build(
+        path, num_qubits=3, max_rows=512, threshold=0.5, row_from=1, row_to=3
+    )
+    assert payload["kept_rows"] == 4
+    # Kept rows are basis states 0, 2, 4, 6; rows 1..3 of those are 2 and 4.
+    assert payload["first_row_state"] == 2
+    assert payload["last_row_state"] == 4
+
+
+def test_the_cap_costs_rows_and_says_so(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.npz", ramp(64, 8))
+    payload = waterfall.build(
+        path, num_qubits=6, max_rows=512, threshold=0, max_cells=80
+    )
+    magnitude, _ = planes(payload)
+    assert payload["capped"] is True
+    assert payload["max_cells"] == 80
+    # Positions are untouched; rows absorb the cap.
+    assert magnitude.shape[1] == 8
+    assert magnitude.shape[0] == 10
+    assert magnitude.size <= 80
+
+
+def test_a_payload_within_the_cap_is_not_flagged(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.npz", ramp(8, 4))
+    payload = waterfall.build(
+        path, num_qubits=3, max_rows=512, threshold=0, max_cells=1000
+    )
+    assert payload["capped"] is False
+
+
+def test_the_cap_never_reduces_below_one_row(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.npz", ramp(64, 40))
+    payload = waterfall.build(
+        path, num_qubits=6, max_rows=512, threshold=0, max_cells=1
+    )
+    assert payload["rows"] == 1
+
+
+def test_row_band_reports_one_when_nothing_was_banded(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.npz", ramp(8, 2))
+    payload = waterfall.build(path, num_qubits=3, max_rows=512, threshold=0)
+    assert payload["row_band"] == 1
+    assert payload["view_rows"] == 8

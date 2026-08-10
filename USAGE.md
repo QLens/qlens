@@ -8,7 +8,7 @@ Full manual for Qlens. For project context and install, see [README.md](https://
 pip install qlens[qiskit]
 ```
 
-Extras select the framework(s) you use: `qlens[qiskit]`, `qlens[pennylane]`, or both. The core package installs no quantum framework itself. Python 3.11+.
+Extras select the framework(s) you use: `qlens[qiskit]`, `qlens[pennylane]`, `qlens[cirq]`, or any combination. The core package installs no quantum framework itself. Python 3.11+.
 
 ## 5-minute quickstart
 
@@ -66,6 +66,23 @@ def test_bell_distribution_pennylane():
     qlens.assert_distribution(result, {"00": 0.5, "11": 0.5}, seed=0)
 ```
 
+And in Cirq:
+
+```python
+import cirq
+import qlens
+
+
+def test_bell_distribution_cirq():
+    q = cirq.LineQubit.range(2)
+    circuit = cirq.Circuit([cirq.H(q[0]), cirq.CNOT(q[0], q[1])])
+
+    result = qlens.run(circuit)
+    qlens.assert_distribution(result, {"00": 0.5, "11": 0.5}, seed=0)
+```
+
+Cirq has no qubit register: a circuit has exactly the qubits its operations touch. A qubit that should occupy an axis without being acted on needs an explicit `cirq.I`, which is Cirq's own way of saying so.
+
 ## qlens.run
 
 ```python
@@ -76,14 +93,14 @@ Executes a circuit with per-gate statevector capture and returns an `ExecutionRe
 
 | Parameter | Meaning |
 |---|---|
-| `circuit` | A `qiskit.QuantumCircuit` or a PennyLane `QNode`. The framework is detected from the object type; `backend="qiskit"` or `backend="pennylane"` forces it. |
+| `circuit` | A `qiskit.QuantumCircuit`, a PennyLane `QNode`, or a `cirq.Circuit`. The framework is detected from the object type; `backend="qiskit"`, `"pennylane"`, or `"cirq"` forces it. |
 | `args` | Parameter values for parameterized circuits, bound positionally. |
 
 `ExecutionResult`:
 
 | Member | Meaning |
 |---|---|
-| `snapshots` | One `Snapshot` per gate, in execution order: `position`, `gate` (lowercase name), `qubits` (indices, controls first), `params`, `statevector`. |
+| `snapshots` | One `Snapshot` per gate, in execution order: `position`, `gate` (one canonical lowercase name across every backend), `native_gate` (what the framework itself called it), `qubits` (indices, controls first), `params`, `statevector`. |
 | `statevector_at(position)` | Statevector immediately after the gate at that position. |
 | `final_statevector` | Statevector after the last gate. |
 | `counts(shots=1024, seed=None)` | Sampled measurement counts over all qubits, big-endian bitstring keys. Lazy and cached per (shots, seed). |
@@ -355,7 +372,7 @@ qlens view data/traces/traces.jsonl     # your own runs
 
 Opens a local web viewer over a trace source (a TraceAct `.jsonl` file, a folder of them, or a `SqliteSink` database). Runs recorded with `trace=True` or `trace="gates"` appear in the run picker, and the page updates live while a test session writes new traces, including in-flight runs when TraceAct's `stream_progress` is enabled.
 
-`--demo` generates three sample runs and opens on those instead of a source: a dense variational ansatz carrying one passing and one failing check, a sparse-subspace circuit where the collapse control has most of its rows to drop, and a GHZ state with phase winding. They execute on the bundled reference simulator, so the demo works with neither Qiskit nor PennyLane installed, and they are recorded through the ordinary path: the same trace events, sidecars, and assertion records a real test produces.
+`--demo` generates three sample runs and opens on those instead of a source: a dense variational ansatz carrying one passing and one failing check, a sparse-subspace circuit where the collapse control has most of its rows to drop, and a GHZ state with phase winding. They execute on the bundled reference simulator, so the demo works with no quantum framework installed at all, and they are recorded through the ordinary path: the same trace events, sidecars, and assertion records a real test produces.
 
 | Flag | Meaning |
 |---|---|
@@ -372,7 +389,7 @@ Opens a local web viewer over a trace source (a TraceAct `.jsonl` file, a folder
 | Tab | Shows |
 |---|---|
 | Timeline | The amplitude waterfall: one column per gate position, one row per basis state, hue for phase and brightness for magnitude. Below it the circuit's wire strip on the same x axis, then the transport. |
-| State | The statevector at the cursor as probability bars, with the expected distribution from the nearest `assert_distribution` ghosted behind it, and the largest divergences listed. |
+| State | The statevector at the cursor as probability bars, with a recorded `assert_distribution`'s expectation ghosted behind it, and the largest divergences listed. Where several checks apply, the failing one is overlaid first and a picker names the alternatives. |
 | Diff | Two pinned positions side by side with fidelity \|⟨ψ_A\|ψ_B⟩\|², L2 distance, and the per-basis-state probability delta. |
 | Assertions | Every recorded check with its position, source location, measured numbers, and pass/fail, plus a coverage strip showing where in the run the checks fall. A check whose statistics do not support its own verdict carries an `UNRELIABLE` badge; opening the row explains why and offers the alternatives as copyable lines. |
 
@@ -390,9 +407,34 @@ Every explanation comes in two registers, switchable from the guide header or Se
 
 **Settings** (the gear) holds that toggle, viewer preferences, the test settings the current run used, and **Reset dismissed notices**, which brings back the guided tour and anything else clicked away.
 
-A run opens at its first gate with playback at 1×, so the transport starts where the circuit does. Speeds run 0.25× to 2×, paced for reading rather than for scrubbing.
+A run opens at its first gate with playback at 0.5×, so the transport starts where the circuit does and moves at a pace a gate can be read at. Speeds run 0.25× to 2×.
 
-Dragging anywhere on the waterfall, the wire strip, or the scrubber moves the cursor. On the State tab, hovering a bar reports its basis state, observed value, expected value, and divergence; clicking isolates it and dims the rest. The assertions table sorts on any column header and its widths drag, both remembered between sessions. **Collapse near-zero rows** drops basis states whose amplitude never exceeds a threshold anywhere in the run, which is what makes a 10-qubit run legible; a dashed rule marks where states were skipped.
+Dragging anywhere on the waterfall, the wire strip, or the scrubber moves the cursor. Hovering the waterfall or the strip names what happens at that column: the gate and its parameters, the layer it runs in, the other gates in that layer, and any check recorded there. The layer is the part worth reading, since gates in one layer share no qubit and therefore run together, which makes them the answer to what is active at a point rather than merely what is nearby. Double-clicking a column opens the State tab on it, so a spot that looks wrong in the field becomes the statevector that produced it in one gesture. On the State tab, hovering a bar reports its basis state, observed value, expected value, and divergence; clicking isolates it and dims the rest. The assertions table sorts on any column header and its widths drag, both remembered between sessions. **Collapse near-zero rows** drops basis states whose amplitude never exceeds a threshold anywhere in the run, which is what makes a 10-qubit run legible; a dashed rule marks where states were skipped.
+
+### If something misbehaves
+
+Every interaction handler in the viewer records what it decided, into a bounded ring you can read from the browser console:
+
+```js
+qlens.debug()            // the last 200 events
+qlens.debug('scrub')     // only events whose kind contains 'scrub'
+qlens.debug.table()      // the same, as a console table
+qlens.debug.last('zoom') // the most recent zoom event
+```
+
+Events carry the values a branch tested rather than only the fact that it ran, so a double-click that did nothing reads as `{index: 83, quick: true, near: false, since: 37}` and names its own reason. It is always on: a capped array costs nothing, and instrumentation you have to switch on is instrumentation you do not have when you need it.
+
+### Zooming in
+
+The field lists what it responds to under the transport, so none of this has to be discovered. Scroll over the waterfall to zoom the time axis, hold shift and scroll to zoom the basis-state axis, and shift-drag to frame a region and jump straight to it. `+` and `-` do the same from the keyboard, `0` or `Escape` returns to the whole run, and a **Reset zoom** button appears whenever the field is showing less than everything. When it is, the panel says which slice you are looking at (`positions 74–159 of 209`) and a band on the transport shows where that slice sits in the run.
+
+Zooming matters because of what the field does when a run is bigger than the screen. Say a run has 4096 basis states and the panel is about a thousand pixels tall. They don't fit, so the server groups every four states into one row and draws the loudest of the four.
+
+Picture a security desk with 4096 cameras and 1000 monitors. Wire four cameras to each monitor, show whichever one has movement, and you'll see everything that happens. What you can't tell is which of the four rooms it happened in.
+
+Zooming in rewires the cameras. Ask for two hundred of those states and they get their own rows again, one state per row, real amplitudes rather than a summary. There's no mode to switch and nothing to configure: the field bands rows only while the range you asked for is taller than the panel, so zooming far enough stops it on its own. The panel says `1 row = 4 states` whenever a row is still standing in for several, and stops saying it once each row is a state.
+
+The one number you can change is the ceiling. `qlens view --max-cells N` bounds how large a single request may get; the default holds a payload of roughly five megabytes. Hitting it costs rows rather than positions, since a narrower slice of time is a different question while coarser rows still answer the one you asked, and the panel shows `capped` when it happens rather than quietly handing back something coarser than you asked for.
 
 ### The JSON API
 
@@ -407,7 +449,11 @@ For anything that wants the data directly:
 | `GET /api/waterfall?trace_id=` | Every position at once, reduced to display resolution |
 | `GET /api/stream` | Server-Sent Events: run summaries as they land or change |
 
-`/api/waterfall` accepts `max_rows` (display rows, default 512) and `threshold` (drop basis states whose amplitude never reaches it). It returns two base64 `uint8` planes, `magnitude` and `phase`, laid out row-major at `rows × num_positions`. Magnitude is normalized against `peak` and pre-warped by `mag_exponent` before quantizing: an amplitude field spans several decades, and 256 linear levels would put nearly all of it in the bottom bucket. `peak` is a high percentile rather than the maximum, because position 0 of any circuit is a basis state at magnitude 1 and would otherwise set the scale for the whole run.
+`/api/waterfall` accepts `max_rows` (display rows, default 512), `threshold` (drop basis states whose amplitude never reaches it), and a viewport: `pos_from`/`pos_to` over captured positions and `row_from`/`row_to` over the rows that survived the threshold, both half-open and both defaulting to the whole run. It returns two base64 `uint8` planes, `magnitude` and `phase`, laid out row-major at `rows × (view.pos_to - view.pos_from)`.
+
+The response reports the viewport it actually served in `view`, which is not always the one asked for: a range arriving inverted, or hanging off the end of a run that reloaded shorter, is clamped to something that exists rather than refused. Draw against `view` rather than against what you requested and the axes stay in step with the pixels. `row_band` says how many basis states one row stands for, `view_rows` how many the viewport covers, and `capped` whether the payload ceiling forced coarser rows than `max_rows` allowed.
+
+Brightness is scaled against the whole run, never the viewport, so zooming in does not make a dim region look bright and two zoom levels of the same run stay comparable. Magnitude is normalized against `peak` and pre-warped by `mag_exponent` before quantizing: an amplitude field spans several decades, and 256 linear levels would put nearly all of it in the bottom bucket. `peak` is a high percentile rather than the maximum, because position 0 of any circuit is a basis state at magnitude 1 and would otherwise set the scale for the whole run.
 
 The same trace files open in TraceAct's own generic viewer (`traceact view`), where gate events render as generic timeline nodes.
 

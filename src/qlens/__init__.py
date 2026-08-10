@@ -29,7 +29,7 @@ from qlens._inspect import Inspector, StateDiff, inspect
 from qlens._reliability import QlensStatisticsWarning
 from qlens.backends import Backend, available_backends, detect_backend, get_backend
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "Backend",

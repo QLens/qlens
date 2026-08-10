@@ -35,6 +35,13 @@ _MAX_SEGMENTS = 24
 # enough that only genuinely dominant amplitudes clip, low enough that a
 # single concentrated column cannot set the scale for the whole run.
 _NORMALIZE_PERCENTILE = 99.5
+# Largest plane one request may return, in cells. Two uint8 planes per
+# cell, base64'd, so 2M cells is roughly 5.5MB on the wire. A zoomed
+# viewport is normally far below this; the cap exists so a wide run at
+# full extent cannot ask for a payload no browser will hold. Exceeding it
+# costs rows, never positions, and the payload says so rather than
+# quietly returning something coarser than was asked for.
+DEFAULT_MAX_CELLS = 2_000_000
 
 
 class _Grid:
@@ -147,14 +154,47 @@ def _encode(plane: np.ndarray) -> str:
     return base64.b64encode(np.ascontiguousarray(plane).tobytes()).decode("ascii")
 
 
+def _span(start: int | None, stop: int | None, limit: int) -> tuple[int, int]:
+    """A half-open range clamped inside ``0..limit``, never empty.
+
+    A viewport arrives from a browser and can name anything: a range
+    inverted by a drag that went right to left, one past the end after a
+    run reloaded shorter, or nothing at all. Every one of those resolves
+    to a range that exists rather than to an error, because a viewport is
+    a view of the data and not an assertion about it.
+    """
+    if limit <= 0:
+        return 0, 0
+    low = 0 if start is None else max(0, min(int(start), limit - 1))
+    high = limit if stop is None else max(0, min(int(stop), limit))
+    if high <= low:
+        low, high = 0, limit
+    return low, high
+
+
 def build(
     path: Path,
     *,
     num_qubits: int,
     max_rows: int,
     threshold: float,
+    row_from: int | None = None,
+    row_to: int | None = None,
+    pos_from: int | None = None,
+    pos_to: int | None = None,
+    max_cells: int = DEFAULT_MAX_CELLS,
 ) -> dict[str, Any]:
-    """Reduce a run's sidecar to a display-resolution waterfall payload."""
+    """Reduce a run's sidecar to a display-resolution waterfall payload.
+
+    ``row_from``/``row_to`` index the kept rows (basis states surviving
+    ``threshold``, in order) and ``pos_from``/``pos_to`` index captured
+    positions. Both are half-open and both default to the whole run.
+
+    Rows band only when the requested span still exceeds the display
+    height, so zooming far enough stops banding on its own: ask for 200
+    rows into 512 of display and every row is one basis state. There is no
+    mode to choose, only a span that eventually fits.
+    """
     grid = load(path)
     num_states, num_positions = grid.magnitude.shape
 
@@ -169,10 +209,21 @@ def build(
         kept = np.arange(num_states)
         threshold = 0.0
 
-    magnitude = grid.magnitude[kept]
-    phase = grid.phase[kept]
-    rows = min(int(kept.size), max(1, int(max_rows)))
-    if kept.size > rows:
+    low_row, high_row = _span(row_from, row_to, int(kept.size))
+    low_pos, high_pos = _span(pos_from, pos_to, int(num_positions))
+    window = kept[low_row:high_row]
+    columns = high_pos - low_pos
+
+    magnitude = grid.magnitude[np.ix_(window, np.arange(low_pos, high_pos))]
+    phase = grid.phase[np.ix_(window, np.arange(low_pos, high_pos))]
+
+    rows = min(int(window.size), max(1, int(max_rows)))
+    # The cap costs rows rather than positions: a narrower column range is
+    # a different question, while coarser rows still answers this one.
+    capped = bool(columns and rows * columns > max_cells)
+    if capped:
+        rows = max(1, int(max_cells // max(columns, 1)))
+    if window.size > rows:
         phase = _band(magnitude, rows, take_from=phase)
         magnitude = _band(magnitude, rows)
 
@@ -182,22 +233,40 @@ def build(
     # Phase wraps, so 256 maps back to 0 rather than clipping to 255.
     phase_bytes = (np.rint(phase * 256.0).astype(np.int32) % 256).astype(np.uint8)
 
+    shown = int(mag_bytes.shape[0]) if mag_bytes.size else 0
     return {
         "num_qubits": num_qubits,
         "num_states": int(num_states),
         "positions": grid.positions,
         "num_positions": int(num_positions),
-        "rows": int(mag_bytes.shape[0]) if mag_bytes.size else 0,
-        "first_row_state": int(kept[0]) if kept.size else 0,
-        "last_row_state": int(kept[-1]) if kept.size else 0,
+        "rows": shown,
+        "first_row_state": int(window[0]) if window.size else 0,
+        "last_row_state": int(window[-1]) if window.size else 0,
         "kept_rows": int(kept.size),
         "elided_rows": int(num_states - kept.size),
-        "segments": _segments(kept) if threshold > 0 else [],
+        "segments": _segments(window) if threshold > 0 else [],
         "threshold": float(threshold),
         "peak": peak,
         "maximum": grid.maximum,
         "mag_exponent": _MAG_EXPONENT,
         "row_max": [float(v) for v in grid.row_max],
+        # The viewport actually served, which is not always the one asked
+        # for. The client draws what came back rather than what it
+        # requested, so a clamped range never puts the axes out of step
+        # with the pixels.
+        "view": {
+            "row_from": low_row,
+            "row_to": high_row,
+            "pos_from": low_pos,
+            "pos_to": high_pos,
+        },
+        "view_positions": grid.positions[low_pos:high_pos],
+        "view_rows": int(window.size),
+        # How many basis states one drawn row stands for. 1 means the
+        # rows are the states themselves.
+        "row_band": int(-(-window.size // shown)) if shown else 0,
+        "capped": capped,
+        "max_cells": int(max_cells),
         "magnitude": _encode(mag_bytes),
         "phase": _encode(phase_bytes),
     }

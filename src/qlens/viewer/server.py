@@ -38,16 +38,27 @@ _CONTENT_TYPES = {
     ".js": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",
 }
+# The one exception to no-store. A font can't run, so it can't skew
+# against a restarted server the way cached code does, and refetching
+# 145KB of woff2 on every reload of a local tool is a cost nobody asked
+# for. Everything executable is no-store.
+_IMMUTABLE_SUFFIXES = frozenset({".woff2"})
 _STREAM_POLL_SECONDS = 1.0
 
 
 class ViewerState:
     """Shared source configuration for all request threads."""
 
-    def __init__(self, source: str, state_dir: str) -> None:
+    def __init__(self, source: str, state_dir: str, max_cells: int | None = None) -> None:
         self.source = source
         self.state_dir = state_dir
+        # The largest waterfall one request may return. A number, not a
+        # mode: it bounds the payload without deciding how the field is
+        # read.
+        self.max_cells = max_cells or waterfall.DEFAULT_MAX_CELLS
 
     def log(self) -> Any:
         from traceact import TraceLog
@@ -271,11 +282,22 @@ class _Handler(BaseHTTPRequestHandler):
         if record is None:
             return
         trace_id = str(record.get("trace_id"))
+
+        def optional(name: str) -> int | None:
+            raw = (query.get(name) or [""])[0]
+            return int(raw) if raw else None
+
         try:
             max_rows = int((query.get("max_rows") or ["512"])[0])
             threshold = float((query.get("threshold") or ["0"])[0])
+            # The viewport. Absent means the whole run, which is what a
+            # client that has never zoomed sends.
+            row_from, row_to = optional("row_from"), optional("row_to")
+            pos_from, pos_to = optional("pos_from"), optional("pos_to")
         except ValueError:
-            self._send_error_json("max_rows and threshold must be numeric", 400)
+            self._send_error_json(
+                "max_rows, threshold, and the viewport bounds must be numeric", 400
+            )
             return
         max_rows = max(1, min(max_rows, _MAX_WATERFALL_ROWS))
 
@@ -284,7 +306,15 @@ class _Handler(BaseHTTPRequestHandler):
             return
         num_qubits = int((record.get("meta") or {}).get("num_qubits", 0))
         payload = waterfall.build(
-            path, num_qubits=num_qubits, max_rows=max_rows, threshold=threshold
+            path,
+            num_qubits=num_qubits,
+            max_rows=max_rows,
+            threshold=threshold,
+            row_from=row_from,
+            row_to=row_to,
+            pos_from=pos_from,
+            pos_to=pos_to,
+            max_cells=self.state.max_cells,
         )
         payload["trace_id"] = trace_id
         self._send_json(payload)
@@ -310,9 +340,8 @@ class _Handler(BaseHTTPRequestHandler):
             time.sleep(_STREAM_POLL_SECONDS)
 
     def _serve_static(self, filename: str) -> None:
-        safe_name = Path(filename).name  # basename only: no traversal
-        path = _STATIC_DIR / safe_name
-        if not path.is_file():
+        path = self._static_path(filename)
+        if path is None or not path.is_file():
             self._send_error_json("not found", 404)
             return
         body = path.read_bytes()
@@ -321,9 +350,32 @@ class _Handler(BaseHTTPRequestHandler):
             "Content-Type", _CONTENT_TYPES.get(path.suffix, "application/octet-stream")
         )
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache")
+        # no-store, not no-cache: no-cache still stores the response and
+        # revalidates, which leaves an open tab able to run a previous
+        # version's JavaScript against a restarted server. A plain reload
+        # doesn't clear that and the symptoms never point at caching.
+        # Files are read from disk per request anyway, so nothing is lost.
+        self.send_header(
+            "Cache-Control",
+            "public, max-age=31536000, immutable"
+            if path.suffix in _IMMUTABLE_SUFFIXES
+            else "no-store",
+        )
         self.end_headers()
         self.wfile.write(body)
+
+    @staticmethod
+    def _static_path(filename: str) -> Path | None:
+        """The file a /static/ route names, or None if it escapes the directory.
+
+        Subdirectories are allowed so the vendored fonts can sit in one
+        (with their licences beside them), which rules out serving by
+        basename. Every candidate is resolved and checked to be inside the
+        static tree, so traversal and symlinks out of it both 404.
+        """
+        candidate = (_STATIC_DIR / filename).resolve()
+        root = _STATIC_DIR.resolve()
+        return candidate if candidate.is_relative_to(root) else None
 
 
 def serve(
@@ -333,10 +385,15 @@ def serve(
     host: str = "127.0.0.1",
     port: int = 8766,
     max_port_tries: int = 20,
+    max_cells: int | None = None,
 ) -> ThreadingHTTPServer:
     """Bind and return the server (caller drives serve_forever). Tries
     up to ``max_port_tries`` consecutive ports from ``port``."""
-    handler = type("BoundHandler", (_Handler,), {"state": ViewerState(source, state_dir)})
+    handler = type(
+        "BoundHandler",
+        (_Handler,),
+        {"state": ViewerState(source, state_dir, max_cells)},
+    )
     last_error: OSError | None = None
     for candidate in range(port, port + max_port_tries):
         try:

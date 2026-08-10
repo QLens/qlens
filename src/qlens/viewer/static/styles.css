@@ -2,10 +2,35 @@
  *
  * Design tokens first, then the handful of components built on them.
  * Everything here is self-contained: the viewer runs on a local port
- * against local trace files and makes no external requests, so there are
- * no webfont or stylesheet URLs. The font stacks name the design's
- * typefaces first and fall back to whatever the system has.
+ * against local trace files and makes no external requests. The two
+ * typefaces ship inside the package (both SIL Open Font License 1.1,
+ * copies in static/fonts/) and are served from it, so the viewer looks
+ * the same offline and on a machine that has never seen them.
  */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('fonts/SpaceGrotesk-Variable.woff2') format('woff2-variations');
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Commit Mono';
+  src: url('fonts/CommitMono-400-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Commit Mono';
+  src: url('fonts/CommitMono-700-Regular.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
   /* base neutrals — cool, near-black, instrument chassis */
@@ -542,6 +567,89 @@ canvas { display: block }
   font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary);
 }
 .bar-tip-rows span:nth-child(even) { text-align: right; color: var(--text-primary) }
+
+/* ---------- waterfall column hover ---------- */
+
+.wf-stack { position: relative; flex: 1; min-width: 0 }
+/* A column can be a couple of pixels wide on a long run, so the rule is
+   what makes the readout attributable to a place in the field. */
+.gate-rule {
+  position: absolute; top: 0; bottom: 0; width: 1px;
+  background: var(--accent-9); opacity: 0.55; pointer-events: none; z-index: 4;
+}
+.gate-rule[hidden] { display: none }
+.gate-tip {
+  position: absolute; top: var(--space-5); width: 248px; pointer-events: none; z-index: 5;
+  background: var(--bg-0); border: 1px solid var(--border);
+  border-radius: var(--radius-3); box-shadow: var(--shadow-panel);
+  padding: var(--space-5) var(--space-6);
+}
+.gate-tip[hidden] { display: none }
+.gate-tip-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--space-5); margin-bottom: var(--space-4);
+}
+.gate-tip-name {
+  font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-primary);
+}
+.gate-tip-params {
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--accent-9);
+}
+.gate-tip-rows {
+  display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-6);
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary);
+}
+.gate-tip-rows span:nth-child(even) { text-align: right; color: var(--text-primary) }
+.gate-tip-layer {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  margin-top: var(--space-4); padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+.gate-tip-list {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);
+  line-height: 1.5; word-break: break-word;
+}
+.gate-tip-mark {
+  display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4);
+}
+.field-hints {
+  gap: var(--space-6); flex-wrap: wrap; padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+.field-hint {
+  display: inline-flex; align-items: center; gap: var(--space-3);
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: var(--tracking-wide); color: var(--text-tertiary);
+}
+.field-hint kbd {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--text-secondary); background: var(--bg-2);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-2);
+  padding: 1px var(--space-3);
+}
+
+/* The region a shift-drag is framing. */
+.wf-marquee {
+  position: absolute; z-index: 6; pointer-events: none;
+  border: 1px solid var(--accent-9);
+  background: oklch(78% 0.17 175 / 0.12);
+}
+.wf-marquee[hidden] { display: none }
+/* The slice of the run on screen, drawn on the scrubber so the transport
+   always says where the field is looking. */
+.scrub-window {
+  position: absolute; top: 0; bottom: 0; z-index: 1;
+  background: oklch(78% 0.17 175 / 0.14);
+  border-left: 1px solid oklch(78% 0.17 175 / 0.5);
+  border-right: 1px solid oklch(78% 0.17 175 / 0.5);
+  pointer-events: none;
+}
+.gate-tip-hint {
+  margin-top: var(--space-4); padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: var(--tracking-wide); color: var(--text-tertiary);
+}
 
 /* ---------- assertions table ---------- */
 

@@ -176,6 +176,15 @@ export function meaningful(value, places = 4) {
   return Number.isFinite(value) && Math.abs(value) >= 0.5 * 10 ** -places;
 }
 
+/** A gate's parameters as one short string, so a rotation reads as a
+ *  rotation by some amount rather than as an unmarked name. Angles that
+ *  round away at three places keep their exponent instead. */
+export function paramText(gate) {
+  const values = Object.values(gate?.params || {});
+  if (!values.length) return '';
+  return values.map((value) => (meaningful(value, 3) ? fixed(value, 3) : sci(value))).join(', ');
+}
+
 export function shortSource(source) {
   if (!source) return '—';
   const parts = source.split('/');

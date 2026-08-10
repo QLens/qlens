@@ -14,6 +14,7 @@ import webbrowser
 from pathlib import Path
 
 import qlens
+from qlens.viewer._waterfall import DEFAULT_MAX_CELLS
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,6 +41,16 @@ def main(argv: list[str] | None = None) -> int:
     view.add_argument("--host", default="127.0.0.1")
     view.add_argument("--port", type=int, default=8766)
     view.add_argument("--no-browser", action="store_true")
+    view.add_argument(
+        "--max-cells",
+        type=int,
+        default=None,
+        help=(
+            "largest waterfall one request may return, in cells "
+            f"(default: {DEFAULT_MAX_CELLS}). Raise it to see wider runs at "
+            "full row resolution in one request; lower it on a slow link"
+        ),
+    )
 
     args = parser.parse_args(argv)
     if args.command != "view":
@@ -67,7 +78,13 @@ def main(argv: list[str] | None = None) -> int:
 
     from qlens.viewer.server import serve
 
-    server = serve(source, state_dir=state_dir, host=args.host, port=args.port)
+    server = serve(
+        source,
+        state_dir=state_dir,
+        host=args.host,
+        port=args.port,
+        max_cells=args.max_cells,
+    )
     host_part, port_part = server.server_address[0], server.server_address[1]
     if isinstance(host_part, bytes):
         host_part = host_part.decode()

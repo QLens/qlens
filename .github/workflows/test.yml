@@ -26,3 +26,16 @@ jobs:
         run: mypy src/qlens
       - name: Test
         run: python -m pytest tests/ -v
+
+  viewer:
+    # The viewer's decision logic ships as plain ES modules with no build
+    # step, and Node's own test runner needs no packages to cover them, so
+    # this job installs nothing.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test
+        run: node --test tests/js/*.test.js

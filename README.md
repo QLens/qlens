@@ -2,7 +2,7 @@
 
 A testing, debugging, and observability SDK for quantum programs, simulator-first.
 
-Quantum software development lacks the testing and debugging ergonomics classical developers take for granted. Qlens packages statevector inspection, statistical output validation, and circuit equivalence checking into one pip-installable SDK for Qiskit and PennyLane, with a `pytest`-native testing API built on instrumented execution that captures the statevector after every gate.
+Quantum software development lacks the testing and debugging ergonomics classical developers take for granted. Qlens packages statevector inspection, statistical output validation, and circuit equivalence checking into one pip-installable SDK for Qiskit, PennyLane, and Cirq, with a `pytest`-native testing API built on instrumented execution that captures the statevector after every gate.
 
 ```python
 import qlens
@@ -18,7 +18,7 @@ def test_bell_distribution():
     qlens.assert_distribution(result, {"00": 0.5, "11": 0.5}, seed=0)
 ```
 
-The same test body works against a PennyLane `QNode` unchanged, and produces the same canonical results: Qlens defines one semantic convention (big-endian bitstrings, canonical basis ordering) and every backend converts at its own boundary.
+The same test body works against a PennyLane `QNode` or a Cirq `Circuit` unchanged, and produces the same canonical results: Qlens defines one semantic convention (big-endian bitstrings, canonical basis ordering) and every backend converts at its own boundary.
 
 ## Install
 
@@ -26,7 +26,7 @@ The same test body works against a PennyLane `QNode` unchanged, and produces the
 pip install qlens[qiskit]
 ```
 
-Extras: `qlens[qiskit]`, `qlens[pennylane]`, or both. Python 3.11+. Simulator-only; no quantum hardware access is involved anywhere.
+Extras: `qlens[qiskit]`, `qlens[pennylane]`, `qlens[cirq]`, or any combination. Python 3.11+. Simulator-only; no quantum hardware access is involved anywhere.
 
 ## What it does
 
@@ -37,10 +37,10 @@ Extras: `qlens[qiskit]`, `qlens[pennylane]`, or both. Python 3.11+. Simulator-on
 - `qlens.assert_equivalent(a, b)`: same unitary up to global phase, across different gate decompositions.
 - `qlens.inspect(result)`: step-through debugging over the captured snapshots (cursor, per-position probabilities, state diffs with fidelity), with no re-execution.
 - `qlens.run(circuit, trace=True)`: records the run as a [TraceAct](https://github.com/traceact/traceact) trace with statevector sidecars, assertion pass/fail events, and per-run event budgets.
-- `qlens view traces.jsonl`: a local viewer over recorded runs — the amplitude waterfall across every gate position, the statevector at any point against what a test expected, an A/B diff between two positions, and clickable assertion markers. A built-in reading guide explains all of it for people new to quantum computing. `qlens view --demo` opens it on sample runs.
+- `qlens view traces.jsonl`: a local viewer over recorded runs — the amplitude waterfall across every gate position, the statevector at any point against what a test expected, an A/B diff between two positions, and clickable assertion markers. Hovering names the gate at a column and the others running alongside it; zooming in gives each basis state its own row back once the range fits the panel. A built-in reading guide explains all of it for people new to quantum computing. `qlens view --demo` opens it on sample runs.
 - Project settings in `pyproject.toml` under `[tool.qlens]`, or `qlens.configure()`, choosing how distributions are compared and what happens when a test's assumptions don't hold. Any call overrides them, and the settings in force are recorded onto the run.
 - A bundled pytest plugin: fixtures, a `qlens` marker, and automatic trace finalization per test.
-- A public backend contract with entry-point discovery, so further frameworks (Cirq and beyond) plug in as separate packages certified against a shipped conformance suite.
+- A public backend contract with entry-point discovery, so further frameworks plug in as separate packages certified against a shipped conformance suite. Qiskit, PennyLane, and Cirq all register through it, with no private shortcuts.
 
 ## Documentation
 
@@ -58,6 +58,10 @@ but expect it to keep growing quickly.
 ## License
 
 MIT.
+
+The viewer bundles two typefaces, Space Grotesk and Commit Mono, both under
+the SIL Open Font License 1.1. Their licences ship beside them in
+`src/qlens/viewer/static/fonts/`.
 
 ---
 
