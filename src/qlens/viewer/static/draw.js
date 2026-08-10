@@ -171,7 +171,9 @@ export function drawWaterfall(canvas, { heatmap, waterfall, width, height, index
 
 /** Observed probabilities, optionally with an expected distribution
  *  ghosted behind them. Bar colour is the phase of that amplitude. */
-export function drawBars(canvas, { observed, expected, hues, width, height, tokens }) {
+export function drawBars(canvas, {
+  observed, expected, hues, width, height, tokens, focus = null,
+}) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(width * dpr);
   canvas.height = Math.round(height * dpr);
@@ -196,6 +198,7 @@ export function drawBars(canvas, { observed, expected, hues, width, height, toke
   if (expected) {
     for (let k = 0; k < expected.length; k++) {
       const barHeight = (expected[k] / peak) * (base - 4);
+      ctx.globalAlpha = focus === null || focus === k ? 1 : 0.25;
       ctx.fillStyle = 'oklch(72% 0.01 258 / 0.16)';
       ctx.fillRect(k * slot + slot * 0.08, base - barHeight, slot * 0.84, barHeight);
       ctx.strokeStyle = 'oklch(72% 0.01 258 / 0.55)';
@@ -206,21 +209,40 @@ export function drawBars(canvas, { observed, expected, hues, width, height, toke
       ctx.stroke();
       ctx.setLineDash([]);
     }
+    ctx.globalAlpha = 1;
   }
 
   const barWidth = expected ? slot * 0.48 : slot * 0.7;
   const inset = expected ? slot * 0.26 : slot * 0.15;
   for (let k = 0; k < observed.length; k++) {
     const barHeight = (observed[k] / peak) * (base - 4);
+    // Focusing one bar dims the rest rather than hiding them, so the
+    // one under inspection keeps its context: how tall it is relative to
+    // everything else is most of what makes it worth looking at.
+    ctx.globalAlpha = focus === null || focus === k ? 1 : 0.18;
     ctx.fillStyle = phaseColor(hues ? hues[k] : 175, tokens);
     ctx.fillRect(
       k * slot + inset, base - barHeight,
       Math.max(barWidth, 1), Math.max(barHeight, observed[k] > 0 ? 1 : 0),
     );
   }
+  ctx.globalAlpha = 1;
+  if (focus !== null && focus >= 0 && focus < observed.length) {
+    ctx.strokeStyle = 'oklch(96% 0.004 258 / 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(Math.round(focus * slot) + 0.5, 0.5, Math.max(slot, 2), base);
+  }
 
   ctx.strokeStyle = 'oklch(38% 0.016 258)';
   ctx.beginPath(); ctx.moveTo(0, base + 0.5); ctx.lineTo(width, base + 0.5); ctx.stroke();
+}
+
+/** Which bar a pointer is over, or null when past the ends. */
+export function barAtPointer(event, canvas, count) {
+  const box = canvas.getBoundingClientRect();
+  if (box.width <= 0 || count <= 0) return null;
+  const index = Math.floor(((event.clientX - box.left) / box.width) * count);
+  return index >= 0 && index < count ? index : null;
 }
 
 /** Signed differences around a centre line. */

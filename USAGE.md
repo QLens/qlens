@@ -392,7 +392,7 @@ Every explanation comes in two registers, switchable from the guide header or Se
 
 A run opens at its first gate with playback at 1×, so the transport starts where the circuit does. Speeds run 0.25× to 2×, paced for reading rather than for scrubbing.
 
-Dragging anywhere on the waterfall, the wire strip, or the scrubber moves the cursor. **Collapse near-zero rows** drops basis states whose amplitude never exceeds a threshold anywhere in the run, which is what makes a 10-qubit run legible; a dashed rule marks where states were skipped.
+Dragging anywhere on the waterfall, the wire strip, or the scrubber moves the cursor. On the State tab, hovering a bar reports its basis state, observed value, expected value, and divergence; clicking isolates it and dims the rest. The assertions table sorts on any column header and its widths drag, both remembered between sessions. **Collapse near-zero rows** drops basis states whose amplitude never exceeds a threshold anywhere in the run, which is what makes a 10-qubit run legible; a dashed rule marks where states were skipped.
 
 ### The JSON API
 

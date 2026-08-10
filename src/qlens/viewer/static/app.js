@@ -15,6 +15,7 @@ import {
 } from './ui.js';
 import {
   buildHeatmap, drawWaterfall, drawBars, drawDeltaBars, phaseTokens, phaseColor,
+  barAtPointer,
 } from './draw.js';
 import { guideOverlay, settingsOverlay, reliabilityNotice } from './guide.js';
 import { TOUR, say } from './copy.js';
@@ -56,7 +57,9 @@ const state = {
   prefs: {
     showTour: saved.prefs?.showTour !== false,
     overlayExpected: saved.prefs?.overlayExpected !== false,
+    columns: saved.prefs?.columns || {},
   },
+  sort: saved.sort || { key: null, direction: 1 },
   runs: [],
   traceId: null,
   detail: null,
@@ -68,6 +71,8 @@ const state = {
   playing: false,
   speed: 1,
   openAssertion: null,
+  //: which basis state the reader clicked to isolate on the State tab
+  focusedBasis: null,
   error: null,
   loading: true,
   health: null,
@@ -170,6 +175,7 @@ async function openRun(traceId) {
   state.pinA = 0;
   state.pinB = Math.max(positionCount() - 1, 0);
   state.openAssertion = null;
+  state.focusedBasis = null;
   await ensureState(currentPosition());
   await ensureState(positions()[state.pinB]);
 }
@@ -212,7 +218,7 @@ function requestState(position) {
   pendingScrub = setTimeout(() => {
     ensureState(position).then(() => {
       if (currentPosition() === position || position === positions()[state.pinA]
-        || position === positions()[state.pinB]) render();
+        || position === positions()[state.pinB]) refresh();
     }).catch(() => {});
   }, SCRUB_DEBOUNCE_MS);
 }
@@ -262,7 +268,7 @@ function persist() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       tab: state.tab, threshold: state.threshold,
       overlay: state.overlay, helpSeen: state.helpSeen, prefs: state.prefs,
-      register: state.register,
+      register: state.register, sort: state.sort,
     }));
   } catch { /* private browsing; the view still works */ }
 }
@@ -271,7 +277,7 @@ function scrubTo(index) {
   const limit = positionCount() - 1;
   state.index = Math.max(0, Math.min(limit, index));
   requestState(currentPosition());
-  render();
+  refresh();
 }
 
 function step(delta) {
@@ -292,6 +298,43 @@ let rafHandle = 0;
 let carry = 0;
 let lastFrame = 0;
 
+/* Elements the transport updates in place while playing.
+ *
+ * Rebuilding the page on every frame destroys whatever the user is
+ * reaching for, so the pause button vanishes between their mousedown and
+ * their click, and restoring scrollTop each frame fights their scrolling.
+ * Playback therefore touches only the handful of things that move. */
+let live = null;
+
+/** Move the playhead without rebuilding anything. */
+function tick() {
+  if (!live || state.tab !== 'Timeline') { render(); return; }
+  const index = state.index;
+  const last = Math.max(positionCount() - 1, 1);
+  const percent = `${(index / last) * 100}%`;
+
+  drawWaterfall(live.canvas, { ...live.waterfallArgs, index, marks: markers() });
+  if (live.stripHead) {
+    const x = ((index + 0.5) / Math.max(positionCount(), 1)) * live.stripWidth;
+    live.stripHead.setAttribute('x1', x);
+    live.stripHead.setAttribute('x2', x);
+  }
+  if (live.scrubFill) live.scrubFill.style.width = percent;
+  if (live.scrubHead) live.scrubHead.style.left = percent;
+  if (live.readout) {
+    live.position.textContent = String(currentPosition() ?? 0);
+    live.gate.textContent = ` · ${gateLabel(currentPosition())}`;
+  }
+  const record = stateAt(currentPosition());
+  if (record && live.bars) {
+    drawBars(live.bars, { ...live.barsArgs, observed: record.probabilities, hues: record.hues });
+  }
+}
+
+/** Whichever update suits the moment: a full render when idle, a
+ *  playhead move when the transport is running. */
+const refresh = () => (state.playing ? tick() : render());
+
 function playLoop(now) {
   const elapsed = now - lastFrame;
   lastFrame = now;
@@ -304,12 +347,12 @@ function playLoop(now) {
       state.index = positionCount() - 1;
       setPlaying(false);
       requestState(currentPosition());
-      render();
+      render();  // one full render on stop, so every panel catches up
       return;
     }
     state.index = next;
     requestState(currentPosition());
-    render();
+    tick();
   }
   rafHandle = requestAnimationFrame(playLoop);
 }
@@ -332,6 +375,7 @@ async function setThreshold(threshold) {
 }
 
 function setTab(name) {
+  if (name !== state.tab) state.focusedBasis = null;
   state.tab = name;
   // Leaving the timeline dismisses its tour rather than parking it to
   // reappear the next time that tab comes back.
@@ -376,19 +420,27 @@ document.addEventListener('keydown', (event) => {
 
 /* ---------- layout ---------- */
 
-/** Panel geometry from the viewport. Canvas surfaces need explicit pixel
- *  sizes, so the sizes CSS would normally own are computed here. */
+/* Canvas surfaces need explicit pixel sizes, so the widths CSS would
+ * normally own have to be computed. Deriving them from the viewport
+ * minus assumed padding drifts the moment any of that padding changes or
+ * a scrollbar appears, and the drawings then overhang or undershoot
+ * their panels. So the first render estimates, and every render after
+ * measures a real panel and corrects. */
+let measuredContent = 0;
+let correcting = false;
+
+/** Panel geometry, from a measured panel where one exists. */
 function geometry() {
   const width = Math.max(root.clientWidth || window.innerWidth, 480);
   const height = Math.max(root.clientHeight || window.innerHeight, 480);
-  const content = width - 40 - 2 - 40; // page padding, panel border, panel padding
+  const content = measuredContent || (width - 40 - 2 - 40);
   const bodyHeight = height - 48 - 36 - 40;
   const qubits = numQubits();
   const laneHeight = qubits > 7 ? 11 : 16;
   const stripHeight = qubits * laneHeight + 8;
   return {
-    content,
-    waterfallWidth: Math.max(240, content - 74 - 8),
+    content: Math.max(240, content),
+    waterfallWidth: Math.max(200, content - 74 - 8),
     waterfallHeight: Math.max(160, bodyHeight - stripHeight - 320),
     laneHeight,
     stripHeight,
@@ -417,13 +469,28 @@ function topbar() {
     h('div', { class: 'spacer' }),
     button('Guide', { onClick: () => openGuide('overview') }),
     iconButton('⚙', 'Settings', { onClick: () => { state.settingsOpen = true; render(); } }),
-    unreliableCount() ? status('warn', `${unreliableCount()} unreliable`) : null,
+    // Both counts name something to go and look at, so both take you
+    // there rather than leaving you to find the tab yourself.
+    unreliableCount()
+      ? actionable(status('warn', `${unreliableCount()} unreliable`),
+        "Show the checks whose statistics don't hold")
+      : null,
     run?.in_flight && status('live', 'recording'),
     state.playing && status('live', `playing ${state.speed}×`),
     state.detail && (failed
-      ? status('fail', `${failed} assertion${failed === 1 ? '' : 's'} failed`)
+      ? actionable(status('fail', `${failed} assertion${failed === 1 ? '' : 's'} failed`),
+        'Show the failed checks')
       : status('pass', 'all passing')),
   );
+}
+
+/** Wrap a status badge so it reads and behaves as the control it looks
+ *  like: a count of things needing attention should take you to them. */
+function actionable(badge, label) {
+  return h('button', {
+    class: 'status-action', type: 'button', title: label, 'aria-label': label,
+    onClick: () => setTab('Assertions'),
+  }, badge);
 }
 
 function runPicker() {
@@ -464,12 +531,13 @@ function tabbar() {
 function waterfallPanel(geo) {
   const waterfall = state.waterfall;
   const canvas = h('canvas');
-  drawWaterfall(canvas, {
+  const waterfallArgs = {
     heatmap: state.heatmap, waterfall,
     width: geo.waterfallWidth, height: geo.waterfallHeight,
-    index: state.index, marks: markers(),
-  });
+  };
+  drawWaterfall(canvas, { ...waterfallArgs, index: state.index, marks: markers() });
   scrubbable(canvas);
+  live = { canvas, waterfallArgs, stripWidth: geo.waterfallWidth };
 
   const rowsPerPixel = waterfall.kept_rows / geo.waterfallHeight;
   const qubits = numQubits();
@@ -547,10 +615,12 @@ function gateStrip(geo) {
       opacity: mark.pass ? 0.3 : 0.75,
     }));
   }
-  nodes.push(svg('line', {
+  const head = svg('line', {
     x1: xAt(state.index), y1: 0, x2: xAt(state.index), y2: height,
     stroke: 'var(--accent-9)', 'stroke-width': 1.5,
-  }));
+  });
+  nodes.push(head);
+  if (live) live.stripHead = head;
 
   return scrubbable(svg('svg', { width, height, style: 'display:block' }, nodes));
 }
@@ -595,24 +665,37 @@ function transport() {
       iconButton('▶', 'Step forward', { onClick: () => step(1) }),
       iconButton('⏭', 'End', { onClick: () => { setPlaying(false); scrubTo(last); } }),
     ),
-    h('span', { class: 'readout', style: { minWidth: '230px' } },
-      'position ', h('span', { class: 'hi' }, String(currentPosition() ?? 0)), ` of ${last}`,
-      h('span', { class: 'lo' }, ` · ${gateLabel(currentPosition())}`),
-    ),
+    transportReadout(last),
     scrubBar(),
     segmented(SPEEDS.map((s) => ({ value: s, label: `${s}×` })), state.speed,
-      (value) => { state.speed = value; if (state.playing) setPlaying(true); render(); }),
+      (value) => {
+        state.speed = value;
+        if (state.playing) setPlaying(true);  // restart the clock at the new rate
+        render();
+      }),
     iconButton('⇤', 'Previous assertion', { onClick: () => jumpAssertion(-1) }),
     iconButton('⇥', 'Next assertion', { onClick: () => jumpAssertion(1) }),
   );
 }
 
+function transportReadout(last) {
+  const position = h('span', { class: 'hi' }, String(currentPosition() ?? 0));
+  const gate = h('span', { class: 'lo' }, ` · ${gateLabel(currentPosition())}`);
+  const readout = h('span', { class: 'readout', style: { minWidth: '230px' } },
+    'position ', position, ` of ${last}`, gate);
+  if (live) Object.assign(live, { readout, position, gate });
+  return readout;
+}
+
 function scrubBar() {
   const last = Math.max(positionCount() - 1, 1);
   const percent = (index) => `${(index / last) * 100}%`;
+  const fill = h('div', { class: 'scrub-fill', style: { width: percent(state.index) } });
+  const headMark = h('div', { class: 'scrub-head', style: { left: percent(state.index) } });
+  if (live) { live.scrubFill = fill; live.scrubHead = headMark; }
   const bar = h('div', { class: 'scrub' },
     h('div', { class: 'scrub-track' },
-      h('div', { class: 'scrub-fill', style: { width: percent(state.index) } }),
+      fill,
       markers().map((mark) => h('div', {
         class: 'scrub-mark',
         title: `${mark.assertion.assertion} · ${mark.pass ? 'pass' : 'fail'}`,
@@ -622,7 +705,7 @@ function scrubBar() {
           boxShadow: mark.pass ? 'none' : 'var(--glow-fail)',
         },
       })),
-      h('div', { class: 'scrub-head', style: { left: percent(state.index) } }),
+      headMark,
     ),
   );
   return scrubbable(bar);
@@ -642,12 +725,15 @@ function activeAssertionPanel(geo) {
   const record = stateAt(here);
   const expected = expectedVector(assertion);
   const canvas = h('canvas');
+  const barsArgs = {
+    expected, width: Math.round(geo.content * 0.52), height: 96, tokens,
+  };
   if (record) {
     drawBars(canvas, {
-      observed: record.probabilities, expected, hues: record.hues,
-      width: Math.round(geo.content * 0.52), height: 96, tokens,
+      ...barsArgs, observed: record.probabilities, hues: record.hues,
     });
   }
+  if (live) { live.bars = canvas; live.barsArgs = barsArgs; }
 
   return panel(
     atCursor ? assertion.assertion : `nearest assertion — ${assertion.assertion}`,
@@ -731,10 +817,10 @@ function stateTab(geo) {
   const expectation = nearestExpectation();
   const expected = state.overlay ? expectedVector(expectation) : null;
 
-  const canvas = h('canvas');
-  drawBars(canvas, {
+  const bars = interactiveBars({
     observed: record.probabilities, expected, hues: record.hues,
-    width: geo.content, height: geo.stateHeight, tokens,
+    width: geo.content, height: geo.stateHeight, qubits,
+    onFocus: render,
   });
 
   const divergences = record.probabilities
@@ -750,13 +836,19 @@ function stateTab(geo) {
   return [
     panel(`Statevector — position ${currentPosition()}`, [
       iconButton('ⓘ', 'What these bars show', { onClick: () => openGuide('state') }),
+      state.focusedBasis !== null
+        ? button(`Showing ${ket(state.focusedBasis, qubits)} · show all`, {
+          variant: 'secondary',
+          onClick: () => { state.focusedBasis = null; render(); },
+        })
+        : null,
       expectation ? toggle('Overlay expected', state.overlay, (checked) => {
         state.overlay = checked; persist(); render();
       }) : null,
       tag(`${size} states`),
       button('Back to timeline', { onClick: () => setTab('Timeline') }),
     ],
-      canvas,
+      bars,
       basisAxis(size, qubits, geo.content),
     ),
     panel(expected ? 'Largest divergences' : 'Largest amplitudes', [
@@ -781,6 +873,70 @@ function stateTab(geo) {
       ))),
     ),
   ];
+}
+
+/** A bar chart that answers questions about itself.
+ *
+ * A bar standing out is only half the information; which basis state it
+ * is, and how far it lies from what the test expected, is the other
+ * half, and reading it off the axis by counting is not something anyone
+ * should have to do. Hovering names the bar and its numbers, clicking
+ * isolates it, and clicking away restores the field.
+ */
+function interactiveBars({ observed, expected, hues, width, height, qubits, onFocus }) {
+  const canvas = h('canvas');
+  const tip = h('div', { class: 'bar-tip', hidden: true });
+  const wrap = h('div', { class: 'bars-wrap', style: { width: `${width}px` } }, canvas, tip);
+
+  const draw = () => drawBars(canvas, {
+    observed, expected, hues, width, height, tokens, focus: state.focusedBasis,
+  });
+  draw();
+
+  const show = (index, event) => {
+    const box = wrap.getBoundingClientRect();
+    const probability = observed[index] ?? 0;
+    const reference = expected ? expected[index] ?? 0 : null;
+    clear(tip);
+    tip.append(
+      h('div', { class: 'bar-tip-basis' },
+        h('span', { class: 'swatch', style: { background: phaseColor(hues[index], tokens) } }),
+        ket(index, qubits)),
+      h('div', { class: 'bar-tip-rows' },
+        h('span', { class: 'micro' }, 'observed'), h('span', {}, fixed(probability)),
+        reference === null ? null : h('span', { class: 'micro' }, 'expected'),
+        reference === null ? null : h('span', {}, fixed(reference)),
+        reference === null ? null : h('span', { class: 'micro' }, 'divergence'),
+        reference === null ? null : h('span', {
+          class: meaningful(probability - reference)
+            ? (probability > reference ? 'up' : 'down') : 'dim',
+        }, signed(probability - reference)),
+      ),
+    );
+    tip.hidden = false;
+    // Flip to the other side of the pointer near the right edge, so the
+    // readout never leaves the panel it belongs to.
+    const offset = event.clientX - box.left;
+    const flip = offset + 200 > box.width;
+    tip.style.left = `${Math.max(0, Math.min(offset + (flip ? -196 : 12), box.width - 190))}px`;
+    tip.style.top = '8px';
+  };
+
+  canvas.addEventListener('pointermove', (event) => {
+    const index = barAtPointer(event, canvas, observed.length);
+    if (index === null) { tip.hidden = true; return; }
+    show(index, event);
+  });
+  canvas.addEventListener('pointerleave', () => { tip.hidden = true; });
+  canvas.addEventListener('click', (event) => {
+    const index = barAtPointer(event, canvas, observed.length);
+    // Clicking the focused bar again releases it, so the control is its
+    // own undo without hunting for empty space.
+    state.focusedBasis = index === null || index === state.focusedBasis ? null : index;
+    onFocus?.();
+  });
+  canvas.classList.add('bars-interactive');
+  return wrap;
 }
 
 function basisAxis(size, qubits, width) {
@@ -947,60 +1103,173 @@ function l2(a, b) {
 
 /* ---------- assertions tab ---------- */
 
+/* The assertions table.
+ *
+ * Column widths are the reader's to set: how much room "assertion"
+ * deserves against "detail" depends on the names in their own suite, not
+ * on what suited the sample data. Both the widths and the sort persist.
+ */
+const COLUMNS = [
+  { key: 'caret', label: '', width: 28, sortable: false, resizable: false },
+  { key: 'position', label: 'position', width: 84 },
+  { key: 'assertion', label: 'assertion', width: 190 },
+  { key: 'detail', label: 'detail', width: 420 },
+  { key: 'source', label: 'source', width: 170 },
+  { key: 'status', label: 'status', width: 190, sortable: false },
+];
+const MIN_COLUMN = 48;
+
+const columnWidths = () => COLUMNS.map(
+  (column) => state.prefs.columns?.[column.key] ?? column.width);
+
+const columnTemplate = () => columnWidths()
+  .map((width, i) => (COLUMNS[i].key === 'detail' ? `minmax(${MIN_COLUMN}px, 1fr)` : `${width}px`))
+  .join(' ');
+
+/** The value a column sorts on. Position sorts numerically; an absent
+ *  position sorts last rather than as zero, which would put unpositioned
+ *  checks among the earliest gates. */
+function sortValue(assertion, key) {
+  if (key === 'position') {
+    const value = assertion.position;
+    return value === null || value === undefined ? Number.POSITIVE_INFINITY : value;
+  }
+  if (key === 'detail') return assertionDetail(assertion).toLowerCase();
+  if (key === 'source') return (assertion.source || '').toLowerCase();
+  return String(assertion[key] ?? '').toLowerCase();
+}
+
+function sortedAssertions(assertions) {
+  const { key, direction } = state.sort;
+  if (!key) return assertions.map((a, index) => ({ a, index }));
+  const rows = assertions.map((a, index) => ({ a, index }));
+  rows.sort((x, y) => {
+    const left = sortValue(x.a, key);
+    const right = sortValue(y.a, key);
+    if (left < right) return -direction;
+    if (left > right) return direction;
+    return x.index - y.index;  // stable: recorded order breaks ties
+  });
+  return rows;
+}
+
+function toggleSort(key) {
+  const { key: current, direction } = state.sort;
+  state.sort = current === key
+    ? { key, direction: -direction }
+    : { key, direction: 1 };
+  persist();
+  render();
+}
+
+function headerCell(column, index) {
+  const active = state.sort.key === column.key;
+  const cell = h('div', { class: 'th' },
+    column.sortable === false
+      ? micro(column.label)
+      : h('button', {
+        class: 'th-sort', type: 'button',
+        'aria-sort': active ? (state.sort.direction === 1 ? 'ascending' : 'descending') : 'none',
+        onClick: () => toggleSort(column.key),
+      }, micro(column.label), h('span', { class: 'th-arrow' },
+        active ? (state.sort.direction === 1 ? '↑' : '↓') : '')),
+  );
+  if (column.resizable !== false && index < COLUMNS.length - 1) {
+    cell.append(columnResizeHandle(column));
+  }
+  return cell;
+}
+
+/** Drag to resize. Widths land in preferences, so a layout someone set
+ *  up for their own suite survives a reload. */
+function columnResizeHandle(column) {
+  const handle = h('div', { class: 'th-resize', title: `Resize ${column.label}` });
+  handle.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = state.prefs.columns?.[column.key] ?? column.width;
+    const grid = handle.closest('.assert-table');
+    const move = (moveEvent) => {
+      const width = Math.max(MIN_COLUMN, startWidth + (moveEvent.clientX - startX));
+      state.prefs.columns = { ...state.prefs.columns, [column.key]: width };
+      // Written straight to the element while dragging: a full render
+      // per pointermove would drop the pointer capture mid-drag.
+      if (grid) grid.style.gridTemplateColumns = columnTemplate();
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      persist();
+      render();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+  return handle;
+}
+
 function assertionsTab(geo) {
   const assertions = state.detail?.assertions || [];
   const failed = failedCount();
-  // The status column carries a pass/fail badge and, when a check's
-  // statistics do not hold, a second one beside it.
-  const columns = '28px 76px minmax(0, 1fr) minmax(0, 240px) 150px 190px';
+  const rows = sortedAssertions(assertions);
 
   return [
     panel('Assertions', [
       failed ? status('fail', `${failed} failed`) : status('pass', 'all passing'),
       unreliableCount() ? status('warn', `${unreliableCount()} unreliable`) : null,
       tag(`${assertions.length} recorded`),
+      state.sort.key
+        ? button('Clear sort', { onClick: () => { state.sort = { key: null, direction: 1 }; persist(); render(); } })
+        : null,
       iconButton('ⓘ', 'How checks are tested', { onClick: () => openGuide('checks') }),
     ],
-      h('div', { class: 'grid-row', style: { gridTemplateColumns: columns, paddingBottom: 'var(--space-4)' } },
-        micro(''), micro('position'), micro('assertion'), micro('detail'), micro('source'), micro('status')),
-      assertions.length
-        ? assertions.map((assertion, i) => assertionRow(assertion, i, columns, geo))
-        : h('p', { class: 'readout lo' },
-          "No assertions recorded for this run. Call qlens.assert_* against the result while its trace is open."),
+      h('div', { class: 'assert-table', style: { gridTemplateColumns: columnTemplate() } },
+        COLUMNS.map((column, index) => headerCell(column, index)),
+        rows.map(({ a, index }) => assertionRow(a, index, geo)),
+      ),
+      assertions.length ? null : h('p', { class: 'readout lo' },
+        "No assertions recorded for this run. Call qlens.assert_* against the result while its trace is open."),
     ),
     coveragePanel(assertions),
   ];
 }
 
-function assertionRow(assertion, key, columns, geo) {
+function assertionRow(assertion, key, geo) {
   const open = state.openAssertion === key;
   const hasPosition = assertion.position !== null && assertion.position !== undefined;
   const record = hasPosition ? stateAt(assertion.position) : null;
-  if (hasPosition && !record) ensureState(assertion.position).then(() => { if (state.openAssertion === key) render(); }).catch(() => {});
+  if (hasPosition && !record) {
+    ensureState(assertion.position)
+      .then(() => { if (state.openAssertion === key) render(); })
+      .catch(() => {});
+  }
 
-  const head = h('div', {
-    class: 'grid-row assert-row', style: { gridTemplateColumns: columns },
-    onClick: () => { state.openAssertion = open ? null : key; render(); },
-  },
+  const cells = [
     h('span', { class: 'dim' }, open ? '▾' : '▸'),
     h('span', { class: hasPosition ? 'pos' : 'dim' }, hasPosition ? String(assertion.position) : '—'),
-    h('span', {}, assertion.assertion),
+    h('span', { class: 'ellipsis' }, assertion.assertion),
     h('span', { class: 'dim ellipsis', title: assertionDetail(assertion) }, assertionDetail(assertion)),
     h('span', { class: 'dim ellipsis', title: assertion.source || '' }, shortSource(assertion.source)),
-    h('span', { style: { display: 'flex', gap: 'var(--space-4)', alignItems: 'center' } },
+    h('span', { class: 'status-cell' },
       status(assertion.status === 'failed' ? 'fail' : 'pass',
         assertion.status === 'failed' ? 'failed' : 'pass'),
       isUnreliable(assertion)
-        ? h('span', {
-          title: assertion.reliability.summary,
-          style: { cursor: 'help' },
-        }, status('warn', 'unreliable'))
+        ? h('span', { title: assertion.reliability.summary, style: { cursor: 'help' } },
+          status('warn', 'unreliable'))
         : null,
     ),
-  );
+  ];
+  const onOpen = () => { state.openAssertion = open ? null : key; render(); };
+  const row = cells.map((cell, i) => h('div', {
+    class: `td${open ? ' td-open' : ''}`, onClick: onOpen,
+  }, cell));
 
-  if (!open) return h('div', {}, head);
+  return open ? [...row, detailRow(assertion, hasPosition, record, geo)] : row;
+}
 
+/** The expanded body, spanning every column. */
+function detailRow(assertion, hasPosition, record, geo) {
   const canvas = h('canvas');
   if (record) {
     drawBars(canvas, {
@@ -1008,16 +1277,16 @@ function assertionRow(assertion, key, columns, geo) {
       hues: record.hues, width: geo.assertionWidth, height: 110, tokens,
     });
   }
-
-  return h('div', { class: 'assert-open' }, head,
+  return h('div', { class: 'td td-detail' },
     h('div', { class: 'assert-detail' },
-      record ? canvas : h('span', { class: 'readout lo' }, hasPosition ? 'loading…' : 'no state captured for this check'),
+      record
+        ? canvas
+        : h('span', { class: 'readout lo' },
+          hasPosition ? 'loading…' : 'no state captured for this check'),
       h('div', { style: { flex: '1', minWidth: '260px', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' } },
         metricGrid(assertion),
         isUnreliable(assertion)
-          ? reliabilityNotice(assertion, state.register, {
-            onLearnMore: () => openGuide('checks'),
-          })
+          ? reliabilityNotice(assertion, state.register, { onLearnMore: () => openGuide('checks') })
           : null,
         h('div', { style: { display: 'flex', gap: 'var(--space-5)', flexWrap: 'wrap' } },
           hasPosition ? button('Open in timeline', {
@@ -1249,6 +1518,7 @@ const helpNote = (label, body, position) => h('div', {
 
 function render() {
   const scrollTop = document.getElementById('body')?.scrollTop || 0;
+  live = null;  // rebuilt below if the timeline is what renders
   clear(root);
   root.append(topbar(), tabbar());
 
@@ -1308,6 +1578,27 @@ function render() {
     }));
   }
   body.scrollTop = scrollTop;
+  correctGeometry(body);
+}
+
+/** Re-render once if the estimate missed the panel's real width.
+ *
+ * Bounded to a single correction: the second pass draws at the measured
+ * width, and measuring again cannot change it, so there is no loop to
+ * fall into even when a scrollbar appears or disappears between them.
+ */
+function correctGeometry(body) {
+  if (correcting) { correcting = false; return; }
+  const panel = body.querySelector('.panel');
+  if (!panel) return;
+  const style = getComputedStyle(panel);
+  const inner = panel.clientWidth
+    - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  if (!Number.isFinite(inner) || inner <= 0) return;
+  if (Math.abs(inner - measuredContent) < 2) return;
+  measuredContent = inner;
+  correcting = true;
+  render();
 }
 
 /** Bring every dismissed piece of guidance back. Someone who clicked a
@@ -1361,10 +1652,13 @@ async function selectRun(traceId) {
   render();
 }
 
-let resizeHandle = 0;
+let windowResizeTimer = 0;
 window.addEventListener('resize', () => {
-  clearTimeout(resizeHandle);
-  resizeHandle = setTimeout(render, 100);
+  clearTimeout(windowResizeTimer);
+  windowResizeTimer = setTimeout(() => {
+    measuredContent = 0;  // re-measure rather than scale the stale value
+    render();
+  }, 80);
 });
 
 /** New and updated runs arrive here. An update to the run already open

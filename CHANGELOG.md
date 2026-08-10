@@ -21,6 +21,10 @@ Assertions that name a point in the run, and a choice of how a distribution is c
 
 ### Changed
 
+- The assertions table sorts on any column and its widths are draggable, both persisted. Detail gets the flexible column, so the long text is what grows.
+- The failure and unreliable counts in the top bar are buttons, opening the Assertions tab.
+- Bars on the State tab report themselves: hovering names the basis state with its observed value, expected value, and divergence, and clicking isolates one bar by dimming the rest. Clicking it again, or switching tab or run, releases it.
+- Panel geometry measures a rendered panel rather than deriving from the viewport minus assumed padding, so drawings track their panel through a window resize.
 - A run opens at its first gate rather than its last, and the Diff tab opens comparing the two ends of the run rather than a position against itself.
 - Playback speeds are 0.25×, 0.5×, 1×, and 2×, defaulting to 1×, paced for following a state as it evolves.
 - The reading guide holds a constant size and scrolls internally, rather than resizing to each topic.
@@ -30,6 +34,7 @@ Assertions that name a point in the run, and a choice of how a distribution is c
 - The guided tour rendered as an empty overlay when the viewer opened in a background tab, where `requestAnimationFrame` doesn't fire. Its anchors are now measured synchronously.
 - The tour could follow a tab switch and anchor its annotations to whatever canvas was on screen.
 - Tour notes anchored to a column near the right edge were pinned against the frame; each now takes whichever side of its anchor has room.
+- Playback rebuilt the whole page on every frame, which destroyed the pause button between a click's press and release and reset the page scroll continuously. The transport now updates only the playhead, readout, and bars in place.
 
 ## 0.3.0 — 2026-08-09
 
