@@ -55,11 +55,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/qlens/qlens"
-Documentation = "https://github.com/qlens/qlens/blob/main/USAGE.md"
-Changelog = "https://github.com/qlens/qlens/blob/main/CHANGELOG.md"
-Issues = "https://github.com/qlens/qlens/issues"
-Source = "https://github.com/qlens/qlens"
+Homepage = "https://github.com/QLens/qlens"
+Documentation = "https://github.com/QLens/qlens/blob/main/USAGE.md"
+Changelog = "https://github.com/QLens/qlens/blob/main/CHANGELOG.md"
+Issues = "https://github.com/QLens/qlens/issues"
+Source = "https://github.com/QLens/qlens"
 Author = "https://mohammedshehu.com"
 
 [project.scripts]
