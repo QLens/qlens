@@ -14,7 +14,7 @@ A third backend, one gate vocabulary across all of them, and a waterfall that sa
 - Hovering the amplitude waterfall or the wire strip names the column: the gate and its parameters, the layer it runs in, the other gates in that layer, and any check recorded there. A rule spans both surfaces so the readout is attributable to a place in the field, which matters when a column is a couple of pixels wide.
 - The layer is reported alongside the gate. Gates in one layer share no qubit and so run together, which makes the layer the honest answer to what is active at a point rather than the single gate the cursor landed on.
 - Double-clicking a column on the waterfall or the strip opens the State tab on that position. Any expectation pinned from elsewhere in the run is released on the way, since a check from another position has nothing to say about this one.
-- Zoom and pan on the waterfall. Scroll to zoom the time axis, shift-scroll for the basis-state axis, shift-drag to frame a region, `+`/`-`/`0` from the keyboard. When a run is taller than the panel the field groups basis states into rows and draws the loudest of each group, so zooming in is what gives a state its own row back. There is no mode for this: rows group only while the range asked for is taller than the panel, and zooming far enough stops it. The panel says `1 row = 4 states` while a row still stands for several, and says which slice of the run is on screen whenever it is not all of it.
+- Zoom and pan on the waterfall. Scroll to zoom the time axis, shift-scroll for the basis-state axis, shift-drag to frame a region, `+`/`-`/`0` from the keyboard. When a run is taller than the panel the field groups basis states into rows and draws the loudest of each group, so zooming in is what gives a state its own row back. There's no mode for this: rows group only while the range asked for is taller than the panel, and zooming far enough stops it. The panel says `1 row = 4 states` while a row still stands for several, and says which slice of the run is on screen whenever it isn't all of it.
 - The field lists its gestures under the transport, so none of them have to be discovered.
 - `/api/waterfall` takes a viewport: `pos_from`/`pos_to` and `row_from`/`row_to`, reduced from the grid already in memory rather than re-read from the sidecar. It reports the viewport it served, since a range arriving inverted or past the end of the run is clamped to one that exists.
 - `qlens view --max-cells N` bounds how large a single waterfall request may get. Hitting it costs rows rather than positions, and the payload says `capped` rather than quietly returning something coarser than was asked for.
@@ -22,9 +22,9 @@ A third backend, one gate vocabulary across all of them, and a waterfall that sa
 
 ### Changed
 
-- `Snapshot.gate` is now one name per gate across every backend: a controlled-NOT reports `cx` whether the framework spelled it `cx` or `CNOT`, and a Hadamard reports `h` whether it was `h`, `Hadamard`, or `H`. A gate outside Qlens's vocabulary keeps the framework's own name rather than being forced into a canonical one it does not have. See CONVENTIONS.md for the mapping.
+- `Snapshot.gate` is now one name per gate across every backend: a controlled-NOT reports `cx` whether the framework spelled it `cx` or `CNOT`, and a Hadamard reports `h` whether it was `h`, `Hadamard`, or `H`. A gate outside Qlens's vocabulary keeps the framework's own name rather than being forced into a canonical one it doesn't have. See CONVENTIONS.md for the mapping.
 - Gate parameters agree across backends too. Rotations report radians everywhere, and a gate whose name already fixes its rotation reports nothing anywhere, rather than carrying an exponent on the frameworks that model it as a power.
-- The State tab's expected overlay prefers a failing check when several apply at one position, and names which one it drew, with a picker when there is a choice. It previously took the first check recorded there, which on a position holding both a passing and a failing check meant every divergence read as zero.
+- The State tab's expected overlay prefers a failing check when several apply at one position, and names which one it drew, with a picker when there's a choice. It previously took the first check recorded there, which on a position holding both a passing and a failing check meant every divergence read as zero.
 - A position holding more than one check lists all of them, rather than the first recorded.
 - The largest-divergence rows break ties on probability, so a check the run agreed with lists its largest outcomes rather than an arbitrary sixteen.
 - An assertion with no position sorts to the end of the table in both directions rather than to the top when sorting descending.
@@ -34,7 +34,7 @@ A third backend, one gate vocabulary across all of them, and a waterfall that sa
 ### Fixed
 
 - A Cirq circuit ending in a measurement raises `UnsupportedCircuitError` from `operator_matrix` as the other backends do. Cirq's own `unitary()` ignores a terminal measurement by default, which would have made `assert_unitary` answer differently depending on the framework.
-- A pointer gesture no longer rebuilds the surface it is bound to. Scrubbing updates the existing elements and renders once when the gesture settles; a render inside a handler detached the canvas, and every listener running after it in the same dispatch then measured an element with no size. Double-click on the field never fired for this reason, and a scrub could jump to the end of the run.
+- A pointer gesture no longer rebuilds the surface it's bound to. Scrubbing updates the existing elements and renders once when the gesture settles; a render inside a handler detached the canvas, and every listener running after it in the same dispatch then measured an element with no size. Double-click on the field never fired for this reason, and a scrub could jump to the end of the run.
 
 ## 0.4.0 — 2026-08-10
 
@@ -46,7 +46,7 @@ Assertions that name a point in the run, and a choice of how a distribution is c
 - `qlens.assert_state(result, expected, fidelity=0.99, at=None)` compares a captured statevector against an expected one by fidelity, ignoring global phase.
 - `ExecutionResult.counts(at=...)` samples the state at any captured position.
 - `test="chi_square_exact"` computes the p-value by simulation instead of the asymptotic formula, which holds however rare an outcome is. `test="tvd"` compares by total variation distance, where `tolerance` is a distance rather than a significance level.
-- Reliability reporting. Chi-square's p-value assumes every outcome is expected several times over; where that does not hold the p-value can be wrong in either direction. Qlens detects the condition, reports it through `on_unreliable_statistics` (`warn`, `error`, or `ignore`), and names the alternatives. It never changes the test method on the caller's behalf. `tvd` is checked the same way against the sampling noise floor at the given shot count.
+- Reliability reporting. Chi-square's p-value assumes every outcome is expected several times over; where that doesn't hold the p-value can be wrong in either direction. Qlens detects the condition, reports it through `on_unreliable_statistics` (`warn`, `error`, or `ignore`), and names the alternatives. It never changes the test method on the caller's behalf. `tvd` is checked the same way against the sampling noise floor at the given shot count.
 - Project settings in `pyproject.toml` under `[tool.qlens]` (`distribution_test`, `on_unreliable_statistics`, `min_expected_count`, `resamples`), loaded by the pytest plugin at collection, settable at runtime with `qlens.configure()`, and overridable per call. The settings in force are recorded onto every traced run.
 - Assertion events carry `method` and `reliability`; run summaries carry `settings` and `assertions_unreliable`.
 - A reading guide in the viewer, written for someone new to quantum computing, reachable from the top bar at any time and from the ⓘ on each panel. A settings panel holds viewer preferences and **Reset dismissed notices**, which brings back the guided tour and anything else clicked away.
@@ -88,7 +88,7 @@ The viewer UI, and the data it needed.
 ### Changed
 
 - `qlens view` takes its source argument optionally; without a source or `--demo` it explains which to pass.
-- `GET /api/state` reads through the same in-process grid cache as the waterfall, so scrubbing does not decompress a sidecar per request.
+- `GET /api/state` reads through the same in-process grid cache as the waterfall, so scrubbing doesn't decompress a sidecar per request.
 
 ## 0.2.0 — 2026-08-08
 

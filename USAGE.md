@@ -140,7 +140,7 @@ Validates sampled output against an expected distribution.
 
 Passing counts to `ks` or samples to a discrete test raises `QlensError` rather than silently computing the wrong statistic.
 
-**When a test does not suit the data.** Chi-square's p-value assumes every outcome is expected roughly five or more times. Quantum output routinely concentrates on a few states, leaving the rest expected far below once, and the p-value then swings by orders of magnitude on the sampling seed alone: such a check both flakes and misses real errors.
+**When a test doesn't suit the data.** Chi-square's p-value assumes every outcome is expected roughly five or more times. Quantum output routinely concentrates on a few states, leaving the rest expected far below once, and the p-value then swings by orders of magnitude on the sampling seed alone: such a check both flakes and misses errors it should catch.
 
 Qlens never changes `test` on your behalf. It detects the condition, reports it, and names what would settle the question:
 
@@ -155,7 +155,7 @@ least 1433 to populate every outcome.
 
 `on_unreliable_statistics` decides what that does: `warn` (the default) raises `qlens.QlensStatisticsWarning`, `error` refuses the result, `ignore` says nothing. The verdict records onto the trace under every policy, so the viewer flags the check either way.
 
-`tvd` gets the same treatment from the other direction: sampling never reproduces a distribution exactly, so a tolerance finer than the sampling noise at your shot count rejects correct circuits, and that is reported too.
+`tvd` gets the same treatment from the other direction: sampling never reproduces a distribution exactly, so a tolerance finer than the sampling noise at your shot count rejects correct circuits, and that's reported too.
 
 **Reading the tolerance.** For the p-value tests, `tolerance` is a significance level, not a distance. `tolerance=0.05` means: reject when the observed counts would occur less than 5% of the time under the expected distribution. Raising it makes the test stricter. For `tvd`, `tolerance` is the distance itself: 0.02 allows the two distributions to disagree about 2% of their mass.
 
@@ -167,7 +167,7 @@ qlens.assert_state(result, expected, fidelity=0.99, at=None)
 
 Asserts the captured statevector matches an expected one, compared by fidelity |⟨expected|actual⟩|² and failing below `fidelity`.
 
-Global phase is ignored: two states differing only by an overall phase factor are the same physical state and score 1.0. Relative phase is not ignored, because it is physical and decides how amplitudes interfere later.
+Global phase is ignored: two states differing only by an overall phase factor are the same physical state and score 1.0. Relative phase isn't ignored, because it's physical and decides how amplitudes interfere later.
 
 ```python
 result = qlens.run(circuit, trace=True)
@@ -204,8 +204,8 @@ on_unreliable_statistics = "warn"
 
 | Setting | Values | Default | Meaning |
 |---|---|---|---|
-| `distribution_test` | `chi_square`, `chi_square_exact`, `tvd`, `ks` | `chi_square` | Which test `assert_distribution` runs when a call does not name one |
-| `on_unreliable_statistics` | `warn`, `error`, `ignore` | `warn` | What happens when a test's assumptions do not hold for the data |
+| `distribution_test` | `chi_square`, `chi_square_exact`, `tvd`, `ks` | `chi_square` | Which test `assert_distribution` runs when a call doesn't name one |
+| `on_unreliable_statistics` | `warn`, `error`, `ignore` | `warn` | What happens when a test's assumptions don't hold for the data |
 | `min_expected_count` | number | `5.0` | Expected count below which a chi-square cell counts as too sparse |
 | `resamples` | integer ≥ 100 | `10000` | Samples drawn for a simulated p-value and for the TVD noise floor |
 
@@ -265,9 +265,9 @@ Running a parameterized circuit without `args` raises `UnsupportedCircuitError`.
 | Error | Raised when |
 |---|---|
 | `QlensAssertionError` | An `assert_*` check failed. Also an `AssertionError`. |
-| `UnsupportedCircuitError` | The circuit contains an instruction the operation cannot handle (mid-circuit measurement, reset, unbound parameters). |
+| `UnsupportedCircuitError` | The circuit contains an instruction the operation can't handle (mid-circuit measurement, reset, unbound parameters). |
 | `BackendNotFoundError` | No registered backend matches the requested name or circuit object. |
-| `BackendNotInstalledError` | The backend exists but its framework package is not installed; the message carries the pip command. |
+| `BackendNotInstalledError` | The backend exists but its framework package isn't installed; the message carries the pip command. |
 | `QlensError` | Base class of all of the above, plus argument-validation errors. |
 
 ## Writing a third-party backend
@@ -350,7 +350,7 @@ Each assertion event carries what the viewer needs to make it clickable:
 |---|---|
 | `position` | The captured position the check applies to, which is where the timeline marker goes. Absent for checks made against a circuit rather than a result. |
 | `source` | `file:line` of the call, skipping qlens's own frames and the standard library. Absent when no such frame exists. |
-| `details` | The measured numbers: `statistic`, `p_value`, `tolerance`, `shots` for `assert_distribution`; `deviation` and `atol` for `assert_unitary`. Values that are not finite (an infinite chi-square, when an outcome the expectation calls impossible was observed) record as `null`. |
+| `details` | The measured numbers: `statistic`, `p_value`, `tolerance`, `shots` for `assert_distribution`; `deviation` and `atol` for `assert_unitary`. Values that aren't finite (an infinite chi-square, when an outcome the expectation calls impossible was observed) record as `null`. |
 | `expected` | The reference distribution, normalized to probabilities, for the viewer to ghost behind the observed bars. Omitted above 256 entries, which would exceed TraceAct's payload budget. |
 | `method` | Which test ran: `chi_square`, `chi_square_exact`, `tvd`, `ks`, or `fidelity` for `assert_state`. |
 | `reliability` | Whether the method's assumptions held, and if not, a plain-language summary, the numbers behind it, and the alternatives. Recorded whatever `on_unreliable_statistics` is set to. |
@@ -372,7 +372,7 @@ qlens view data/traces/traces.jsonl     # your own runs
 
 Opens a local web viewer over a trace source (a TraceAct `.jsonl` file, a folder of them, or a `SqliteSink` database). Runs recorded with `trace=True` or `trace="gates"` appear in the run picker, and the page updates live while a test session writes new traces, including in-flight runs when TraceAct's `stream_progress` is enabled.
 
-`--demo` generates three sample runs and opens on those instead of a source: a dense variational ansatz carrying one passing and one failing check, a sparse-subspace circuit where the collapse control has most of its rows to drop, and a GHZ state with phase winding. They execute on the bundled reference simulator, so the demo works with no quantum framework installed at all, and they are recorded through the ordinary path: the same trace events, sidecars, and assertion records a real test produces.
+`--demo` generates three sample runs and opens on those instead of a source: a dense variational ansatz carrying one passing and one failing check, a sparse-subspace circuit where the collapse control has most of its rows to drop, and a GHZ state with phase winding. They execute on the bundled reference simulator, so the demo works with no quantum framework installed at all, and they're recorded through the ordinary path: the same trace events, sidecars, and assertion records an ordinary test produces.
 
 | Flag | Meaning |
 |---|---|
@@ -391,7 +391,7 @@ Opens a local web viewer over a trace source (a TraceAct `.jsonl` file, a folder
 | Timeline | The amplitude waterfall: one column per gate position, one row per basis state, hue for phase and brightness for magnitude. Below it the circuit's wire strip on the same x axis, then the transport. |
 | State | The statevector at the cursor as probability bars, with a recorded `assert_distribution`'s expectation ghosted behind it, and the largest divergences listed. Where several checks apply, the failing one is overlaid first and a picker names the alternatives. |
 | Diff | Two pinned positions side by side with fidelity \|⟨ψ_A\|ψ_B⟩\|², L2 distance, and the per-basis-state probability delta. |
-| Assertions | Every recorded check with its position, source location, measured numbers, and pass/fail, plus a coverage strip showing where in the run the checks fall. A check whose statistics do not support its own verdict carries an `UNRELIABLE` badge; opening the row explains why and offers the alternatives as copyable lines. |
+| Assertions | Every recorded check with its position, source location, measured numbers, and pass/fail, plus a coverage strip showing where in the run the checks fall. A check whose statistics don't support its own verdict carries an `UNRELIABLE` badge; opening the row explains why and offers the alternatives as copyable lines. |
 
 | Key | Action |
 |---|---|
@@ -422,17 +422,17 @@ qlens.debug.table()      // the same, as a console table
 qlens.debug.last('zoom') // the most recent zoom event
 ```
 
-Events carry the values a branch tested rather than only the fact that it ran, so a double-click that did nothing reads as `{index: 83, quick: true, near: false, since: 37}` and names its own reason. It is always on: a capped array costs nothing, and instrumentation you have to switch on is instrumentation you do not have when you need it.
+Events carry the values a branch tested rather than only the fact that it ran, so a double-click that did nothing reads as `{index: 83, quick: true, near: false, since: 37}` and names its own reason. It's always on: a capped array costs nothing, and instrumentation you have to switch on is instrumentation you don't have when you need it.
 
 ### Zooming in
 
-The field lists what it responds to under the transport, so none of this has to be discovered. Scroll over the waterfall to zoom the time axis, hold shift and scroll to zoom the basis-state axis, and shift-drag to frame a region and jump straight to it. `+` and `-` do the same from the keyboard, `0` or `Escape` returns to the whole run, and a **Reset zoom** button appears whenever the field is showing less than everything. When it is, the panel says which slice you are looking at (`positions 74–159 of 209`) and a band on the transport shows where that slice sits in the run.
+The field lists what it responds to under the transport, so none of this has to be discovered. Scroll over the waterfall to zoom the time axis, hold shift and scroll to zoom the basis-state axis, and shift-drag to frame a region and jump straight to it. `+` and `-` do the same from the keyboard, `0` or `Escape` returns to the whole run, and a **Reset zoom** button appears whenever the field is showing less than everything. When it is, the panel says which slice you're looking at (`positions 74–159 of 209`) and a band on the transport shows where that slice sits in the run.
 
 Zooming matters because of what the field does when a run is bigger than the screen. Say a run has 4096 basis states and the panel is about a thousand pixels tall. They don't fit, so the server groups every four states into one row and draws the loudest of the four.
 
 Picture a security desk with 4096 cameras and 1000 monitors. Wire four cameras to each monitor, show whichever one has movement, and you'll see everything that happens. What you can't tell is which of the four rooms it happened in.
 
-Zooming in rewires the cameras. Ask for two hundred of those states and they get their own rows again, one state per row, real amplitudes rather than a summary. There's no mode to switch and nothing to configure: the field bands rows only while the range you asked for is taller than the panel, so zooming far enough stops it on its own. The panel says `1 row = 4 states` whenever a row is still standing in for several, and stops saying it once each row is a state.
+Zooming in rewires the cameras. Ask for two hundred of those states and they get their own rows again, one state per row, exact amplitudes rather than a summary. There's no mode to switch and nothing to configure: the field bands rows only while the range you asked for is taller than the panel, so zooming far enough stops it on its own. The panel says `1 row = 4 states` whenever a row is still standing in for several, and stops saying it once each row is a state.
 
 The one number you can change is the ceiling. `qlens view --max-cells N` bounds how large a single request may get; the default holds a payload of roughly five megabytes. Hitting it costs rows rather than positions, since a narrower slice of time is a different question while coarser rows still answer the one you asked, and the panel shows `capped` when it happens rather than quietly handing back something coarser than you asked for.
 
@@ -451,9 +451,9 @@ For anything that wants the data directly:
 
 `/api/waterfall` accepts `max_rows` (display rows, default 512), `threshold` (drop basis states whose amplitude never reaches it), and a viewport: `pos_from`/`pos_to` over captured positions and `row_from`/`row_to` over the rows that survived the threshold, both half-open and both defaulting to the whole run. It returns two base64 `uint8` planes, `magnitude` and `phase`, laid out row-major at `rows × (view.pos_to - view.pos_from)`.
 
-The response reports the viewport it actually served in `view`, which is not always the one asked for: a range arriving inverted, or hanging off the end of a run that reloaded shorter, is clamped to something that exists rather than refused. Draw against `view` rather than against what you requested and the axes stay in step with the pixels. `row_band` says how many basis states one row stands for, `view_rows` how many the viewport covers, and `capped` whether the payload ceiling forced coarser rows than `max_rows` allowed.
+The response reports the viewport it actually served in `view`, which isn't always the one asked for: a range arriving inverted, or hanging off the end of a run that reloaded shorter, is clamped to something that exists rather than refused. Draw against `view` rather than against what you requested and the axes stay in step with the pixels. `row_band` says how many basis states one row stands for, `view_rows` how many the viewport covers, and `capped` whether the payload ceiling forced coarser rows than `max_rows` allowed.
 
-Brightness is scaled against the whole run, never the viewport, so zooming in does not make a dim region look bright and two zoom levels of the same run stay comparable. Magnitude is normalized against `peak` and pre-warped by `mag_exponent` before quantizing: an amplitude field spans several decades, and 256 linear levels would put nearly all of it in the bottom bucket. `peak` is a high percentile rather than the maximum, because position 0 of any circuit is a basis state at magnitude 1 and would otherwise set the scale for the whole run.
+Brightness is scaled against the whole run, never the viewport, so zooming in doesn't make a dim region look bright and two zoom levels of the same run stay comparable. Magnitude is normalized against `peak` and pre-warped by `mag_exponent` before quantizing: an amplitude field spans several decades, and 256 linear levels would put nearly all of it in the bottom bucket. `peak` is a high percentile rather than the maximum, because position 0 of any circuit is a basis state at magnitude 1 and would otherwise set the scale for the whole run.
 
 The same trace files open in TraceAct's own generic viewer (`traceact view`), where gate events render as generic timeline nodes.
 

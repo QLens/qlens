@@ -46,7 +46,7 @@ One `Snapshot` per gate, in execution order, positions numbered from 0. Structur
 
 ## Gate names
 
-`Snapshot.gate` is one lowercase name per gate across every backend. The frameworks disagree about spelling, and absorbing that is a backend's job rather than a caller's: a controlled-NOT reports `cx` whether the framework called it `cx`, `CNOT`, or something else again.
+`Snapshot.gate` is one lowercase name per gate across every backend. The frameworks disagree about spelling, and absorbing that's a backend's job rather than a caller's: a controlled-NOT reports `cx` whether the framework called it `cx`, `CNOT`, or something else again.
 
 | Canonical | Qiskit | PennyLane | Cirq |
 |---|---|---|---|
@@ -61,7 +61,7 @@ One `Snapshot` per gate, in execution order, positions numbered from 0. Structur
 | `p` | `p` | `PhaseShift` | — |
 | `u` | `u` | `Rot` | — |
 
-A gate outside this vocabulary keeps the framework's own name, lowercased, rather than being forced into a canonical one it does not have. `Snapshot.native_gate` always holds what the framework itself called the gate, so nothing is lost in translation and a backend-specific gate is still identifiable.
+A gate outside this vocabulary keeps the framework's own name, lowercased, rather than being forced into a canonical one it doesn't have. `Snapshot.native_gate` always holds what the framework itself called the gate, so nothing is lost in translation and a backend-specific gate is still identifiable.
 
 `Snapshot.params` follows the same rule. Rotations report their angle in radians (`p0`) on every backend. A gate whose canonical name already fixes its rotation reports no parameters anywhere, even where the framework models it as a power of another gate and carries an exponent.
 
@@ -69,12 +69,12 @@ A gate outside this vocabulary keeps the framework's own name, lowercased, rathe
 
 `counts(circuit, shots=n)` returns `dict[str, int]` with values summing to `n`, keys all of length `num_qubits` over `{0, 1}`. Zero-count outcomes are omitted. Any measurement the user's circuit declares is ignored: every backend measures all qubits in the computational basis, so identical circuits produce identically-shaped counts on every backend.
 
-A `seed` argument must make sampling reproducible: identical circuit, shots, and seed return identical counts on repeated calls within one backend and version. Seeds are not required to reproduce across backends or versions.
+A `seed` argument must make sampling reproducible: identical circuit, shots, and seed return identical counts on repeated calls within one backend and version. Seeds aren't required to reproduce across backends or versions.
 
 ## Tolerances
 
 - `atol` in `is_unitary` bounds the largest absolute deviation of U†U from the identity.
-- `atol` in `equivalent` bounds elementwise deviation after global-phase alignment. Equivalence ignores global phase and nothing else: Z and RZ(pi) are equivalent (they differ by the global factor `i`); X and Y are not (relative phase).
+- `atol` in `equivalent` bounds elementwise deviation after global-phase alignment. Equivalence ignores global phase and nothing else: Z and RZ(pi) are equivalent (they differ by the global factor `i`); X and Y aren't (relative phase).
 - `tolerance` in `assert_distribution` is a significance level, not a distance; see USAGE.md.
 
 ## Global phase
