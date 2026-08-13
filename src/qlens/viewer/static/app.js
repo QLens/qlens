@@ -1336,6 +1336,13 @@ function stateTab(geo) {
           + `${expectation.method ? ` · ${expectation.method}` : ''}`
           + `${expectation.position === null || expectation.position === undefined ? '' : ` at ${expectation.position}`}`)
         : null,
+      // A trimmed expectation is still worth ghosting, but presenting a
+      // slice as the whole distribution would be a quiet lie.
+      expectation?.expected_trimmed
+        ? status('warn', `top ${expectation.expected_trimmed.kept} of `
+          + `${expectation.expected_trimmed.of} outcomes · `
+          + `${(expectation.expected_trimmed.coverage * 100).toFixed(1)}% of the mass`)
+        : null,
     ],
       h('div', {
         class: 'divergence-grid',

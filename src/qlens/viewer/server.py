@@ -142,6 +142,7 @@ def _circuit_detail(record: dict[str, Any]) -> dict[str, Any]:
                     "source": event.get("source"),
                     "details": event.get("details") or {},
                     "expected": event.get("expected"),
+                    "expected_trimmed": event.get("expected_trimmed"),
                     "method": event.get("method"),
                     "reliability": event.get("reliability"),
                 }

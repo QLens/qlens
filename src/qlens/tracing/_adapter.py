@@ -12,9 +12,11 @@ run's flush, at interpreter exit, or explicitly via finish().
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 import sysconfig
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -32,10 +34,21 @@ if TYPE_CHECKING:
 _BUDGET_SLACK = 64
 
 # An expected distribution rides along in the event so the viewer can
-# ghost it behind the observed bars. TraceAct drops any single value over
-# max_payload_bytes (8KB), so cap the entry count well under that; a
-# larger reference is a viewer nicety, not something worth truncating a
-# payload over.
+# ghost it behind the observed bars.
+#
+# The binding limit is bytes, not entries. TraceAct deletes any single
+# value over max_payload_bytes (8192 by default), and an entry's size
+# depends on how wide its bitstring key is: 256 outcomes of a 6-qubit run
+# serialize to about 2KB, the same 256 outcomes of a 12-qubit run to over
+# 10KB. Counting entries would keep the narrow case well inside the
+# budget and push the wide one past it, which is exactly the case a wide
+# expectation arrives in.
+#
+# Budgeted below 8192 so the estimate here never has to be exact to the
+# byte against whatever encoder TraceAct uses.
+_MAX_EXPECTED_BYTES = 6144
+# A secondary ceiling for the viewer's sake rather than the payload's:
+# past a few hundred ghosted bars nobody is reading individual outcomes.
 _MAX_EXPECTED_ENTRIES = 256
 
 
@@ -113,13 +126,67 @@ def assertion_fields(
         fields["source"] = source
     if details:
         fields["details"] = {k: _finite(v) for k, v in details.items()}
-    if expected is not None and len(expected) <= _MAX_EXPECTED_ENTRIES:
-        total = sum(float(v) for v in expected.values())
-        if total > 0:
-            fields["expected"] = {
-                str(k): float(v) / total for k, v in expected.items()
-            }
+    if expected is not None:
+        fields.update(_expected_fields(expected))
     return fields
+
+
+def _expected_fields(expected: Mapping[str, float]) -> dict[str, Any]:
+    """The reference distribution, trimmed to what a payload can carry.
+
+    A wide expectation is common and mostly empty: a check written against
+    a 9-qubit run names all 512 outcomes so the sampler cannot draw one
+    the expectation calls impossible, and 496 of them are zero. Dropping
+    the whole thing over its length would lose an overlay that fits
+    easily once the zeros go.
+
+    So zeros go first, then the smallest outcomes, and what survives is
+    reported. Silently keeping a fraction would leave the viewer ghosting
+    part of a distribution while presenting it as the whole one.
+    """
+    total = sum(float(v) for v in expected.values())
+    if total <= 0:
+        return {}
+    ranked = sorted(
+        ((str(k), float(v) / total) for k, v in expected.items() if float(v) > 0),
+        key=lambda item: -item[1],
+    )
+    kept = _fit_to_budget(ranked)
+    # Probabilities are against the original total, not the kept total, so
+    # a surviving bar keeps the height the check actually expected of it
+    # rather than being inflated to cover what was dropped.
+    fields: dict[str, Any] = {"expected": dict(kept)}
+    if len(kept) < len(expected):
+        fields["expected_trimmed"] = {
+            "kept": len(kept),
+            "of": len(expected),
+            "coverage": sum(v for _, v in kept),
+        }
+    return fields
+
+
+def _fit_to_budget(ranked: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """As many of the largest outcomes as the payload budget allows.
+
+    The cheap estimate gets close, then an exact serialize confirms it.
+    The estimate is not a reliable upper bound — ``repr`` and ``json``
+    disagree on some floats (``json.dumps(0.1)`` is longer than
+    ``repr(0.1)``), so a slice the estimate calls safe can serialize a few
+    hundred bytes over. Measured, not assumed: a 2000-case check found the
+    real payload up to ~300 bytes above the estimate. So the estimate
+    picks a candidate quickly, and the loop drops entries until the actual
+    encoded size fits.
+    """
+    kept: list[tuple[str, float]] = []
+    size = 2  # the enclosing braces
+    for key, value in ranked[:_MAX_EXPECTED_ENTRIES]:
+        size += len(key) + len(repr(value)) + 4  # "key":value,
+        if size > _MAX_EXPECTED_BYTES:
+            break
+        kept.append((key, value))
+    while kept and len(json.dumps(dict(kept)).encode()) > _MAX_EXPECTED_BYTES:
+        kept.pop()
+    return kept
 
 
 class TracedRun:

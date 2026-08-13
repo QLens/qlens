@@ -58,14 +58,24 @@ def test_expected_distribution_with_no_mass_is_dropped() -> None:
     assert "expected" not in fields
 
 
-def test_oversized_expected_distribution_is_dropped() -> None:
-    """TraceAct deletes any single value over its payload budget, which
-    would leave the event carrying a silently truncated reference."""
+def test_an_oversized_expected_distribution_is_trimmed_and_says_so() -> None:
+    """TraceAct deletes any single value over its payload budget, so a
+    wide expectation has to be trimmed to fit. Dropping it whole was the
+    earlier answer, and it left the viewer with nothing to overlay and no
+    way to explain the absence."""
+    import json
+
+    from traceact.budget import BUDGET_DEFAULTS
+
+    limit = int(BUDGET_DEFAULTS["max_payload_bytes"])
     large = {format(i, "012b"): 1.0 for i in range(4096)}
     fields = assertion_fields(
         None, "assert_distribution", "distribution", None, None, large
     )
-    assert "expected" not in fields
+    assert fields["expected"], "something must survive to ghost"
+    assert len(json.dumps(fields["expected"]).encode()) <= limit
+    assert fields["expected_trimmed"]["of"] == 4096
+    assert fields["expected_trimmed"]["kept"] < 4096
 
 
 def test_failure_carries_type_and_message() -> None:

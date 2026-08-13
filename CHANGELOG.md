@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0 — 2026-08-11
+
+Assertions aimed at documented bug patterns rather than at whatever was convenient to check.
+
+### Added
+
+- `qlens.assert_separable(result, qubits, at=None)` asserts the named qubits carry no correlation with the rest of the register. It asserts a property rather than a value, so it needs no expected statevector — which is what makes it usable on the circuit you're actually debugging, where the expected state is the thing you don't have. It exists for the ancilla that wasn't uncomputed: skip the mirroring step and the scratch qubit stays entangled with the data, silently, until some later interference turns a certain answer into a coin flip.
+- `qlens.assert_entangled(result, qubits, at=None)`, the complement, for a control that never took effect.
+- Both are fixtures in the bundled pytest plugin, and both record onto traces with their measured purity, so the viewer marks them like any other check.
+- `_stats.schmidt_coefficients` and `_stats.subsystem_purity`: the bipartite split behind them. Subsystems need not be contiguous, since an ancilla rarely sits at the end of a register.
+- A bug-pattern catalog in USAGE.md covering four documented patterns — wrong qubit order, wrong gate, a phase error measurement can't see, and a leaked ancilla — with the check that finds each, and a plain statement of what Qlens can't catch. Each pattern is reproduced twice in the test suite, once correct and once faulty, so a catalog entry is exercised rather than claimed.
+- Assertion events carry `expected_trimmed` when the recorded expectation was too wide for a trace payload, naming how many outcomes were kept, out of how many, and what fraction of the probability they cover. The viewer shows it beside the overlay.
+
+### Fixed
+
+- An expectation naming more outcomes than a trace payload can carry was dropped whole, and nothing said so. The State tab then had nothing to overlay and no way to explain why: a 9-qubit check naming all 512 outcomes lost its expected values, its divergences, and its picker, while a 6-qubit one kept them. Zero-probability outcomes are now dropped first, which is usually all it takes — the same 9-qubit check keeps all 16 outcomes that carry any probability. Where a trim is still needed, the largest outcomes survive and the payload reports the loss instead of hiding it.
+
 ## 0.5.0 — 2026-08-10
 
 A third backend, one gate vocabulary across all of them, and a waterfall that says what happened where.

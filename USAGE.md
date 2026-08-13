@@ -176,6 +176,35 @@ qlens.assert_state(result, [SQ2, 0, 0, SQ2], at=41)   # entangled by here
 
 `at` picks the gate position and is where the viewer marks the assertion on the timeline.
 
+### assert_separable
+
+```python
+qlens.assert_separable(result, qubits, atol=1e-9, at=None)
+```
+
+Asserts the named qubits carry no correlation with the rest of the register: measuring them tells you nothing about the others.
+
+This one asserts a *property*, not a value, so it needs no expected statevector. That's the point of it. `assert_state` requires you to already know the answer, which for anything you're debugging is exactly what you don't have.
+
+It exists for the ancilla you forgot to uncompute. Mirroring a computation back is what releases a scratch qubit; skip the mirror and the ancilla stays entangled with your data, silently, until some later interference step turns a certain answer into a coin flip.
+
+```python
+result = qlens.run(circuit, trace=True)
+qlens.assert_separable(result, [2], at=88)   # the ancilla is free again by here
+```
+
+Measured as the purity of the subsystem after tracing out the rest: exactly 1 is a product state, below 1 is entanglement. `atol` is how far below 1 still counts as separable, absorbing rounding accumulated across a long circuit.
+
+Naming every qubit in the register is refused rather than answered. The whole register is always separable from nothing, so it would be a check that passes on every circuit ever written.
+
+### assert_entangled
+
+```python
+qlens.assert_entangled(result, qubits, atol=1e-9, at=None)
+```
+
+The complement: asserts the named qubits *are* correlated with the rest. This is the check for a control that never took effect — a multiply-controlled operation whose controls are routed wrongly can leave the target uncorrelated with the qubits meant to drive it, and no amount of staring at the final distribution makes that obvious.
+
 ### assert_unitary
 
 ```python
@@ -191,6 +220,39 @@ qlens.assert_equivalent(circuit_a, circuit_b, atol=1e-8, args=())
 ```
 
 Asserts two circuits compute the same unitary, ignoring global phase. Different gate decompositions of the same operation pass; circuits differing by a relative phase fail. Both circuits must come from the same framework.
+
+## Which bugs these catch
+
+The assertions above are aimed at documented bug patterns rather than at whatever seemed worth checking. Four patterns, each with the check that finds it:
+
+| Pattern | What it looks like | Caught by |
+|---|---|---|
+| Wrong qubit order | a control and target reversed, or a register read in the other endianness | `assert_state` at a position |
+| Wrong gate | a same-arity substitution: `h` where `x` was meant | `assert_distribution`, or `assert_state` to localise |
+| Phase error | a relative phase that leaves every measurement probability untouched | `assert_state` only |
+| Ancilla not uncomputed | a scratch qubit still entangled with the data | `assert_separable` |
+
+Two of these are worth understanding rather than just looking up.
+
+**A phase error is invisible to measurement.** Not hard to see, *invisible*. Inject a relative phase into a GHZ circuit and the sampled counts come back byte-identical, so every distribution check passes:
+
+```
+counts, correct : {'111': 2012, '000': 2084}
+counts, buggy   : {'111': 2012, '000': 2084}
+state fidelity  : 0.7500
+```
+
+That isn't a shortcoming of `assert_distribution` — measurement can't distinguish those two states. It's the reason Qlens captures statevectors at all, and the reason a distribution check alone isn't a test of a quantum program.
+
+**A leaked ancilla is silent until it isn't.** Before anything interferes, the data qubit's own statistics are unchanged, so a check watching the data passes. The damage appears later, when the interference the algorithm depends on fails to happen and a deterministic answer spreads across every outcome. `assert_separable` sees it at the point it happens, because it asks about the correlation rather than about either qubit's own numbers.
+
+### What these don't catch
+
+Worth stating plainly. In the largest study of quantum program bug fixes, **API misuse was the single biggest category — 30 of 96 bugs.** Qlens can't see any of them. Nor outdated API clients, nor misconfiguration, nor a wrong implementation approach. Those are static-analysis and code-review problems; [QChecker](https://arxiv.org/abs/2304.04387) is the tool shaped for them.
+
+Qlens's slice is the semantic one: roughly a quarter of the bugs found in the wild, where the code runs cleanly and produces the wrong state. A lint pass and a state checker catch disjoint sets, and you want both.
+
+The framing here follows the taxonomy in Huang and Martonosi's [Statistical Assertions for Validating Patterns and Finding Bugs in Quantum Programs](https://ar5iv.labs.arxiv.org/html/1905.09721) (ISCA 2019), with frequency data from [A Comprehensive Study of Bug Fixes in Quantum Programs](https://arxiv.org/abs/2201.08662). The cross-framework endianness disagreement that drives the first pattern is catalogued as "quantum plumbing" in [An experience-based classification of quantum bugs](https://arxiv.org/abs/2509.03280), and is why [CONVENTIONS.md](https://github.com/QLens/qlens/blob/main/CONVENTIONS.md) exists.
 
 ## Settings
 

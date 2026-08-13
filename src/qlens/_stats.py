@@ -6,7 +6,7 @@ Qlens shapes (big-endian counts dicts, big-endian matrices).
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -257,3 +257,59 @@ def state_fidelity(
     if norm == 0:
         return 0.0
     return float(abs(overlap / norm) ** 2)
+
+
+def schmidt_coefficients(
+    state: npt.NDArray[np.complex128], qubits: Sequence[int], num_qubits: int
+) -> npt.NDArray[np.float64]:
+    """Schmidt coefficients splitting ``qubits`` from the rest of the register.
+
+    The state is reshaped into one axis per qubit, the named qubits are
+    permuted to the front, and the result is flattened into a matrix whose
+    singular values are the Schmidt coefficients of that bipartition.
+
+    One nonzero coefficient means the two halves are a product state: the
+    named qubits carry no correlation with the rest, and measuring them
+    tells you nothing about the others. More than one means they're
+    entangled, and the count is the Schmidt rank.
+
+    Qubit indices are big-endian, matching every other Qlens surface, so
+    qubit 0 is the most significant axis of the reshaped tensor.
+    """
+    # Sorted for a deterministic axis order, not for correctness:
+    # reordering within the subset permutes the matrix's rows, and a
+    # permutation is unitary, so the singular values come out the same
+    # either way.
+    ordered = sorted(qubits)
+    rest = [q for q in range(num_qubits) if q not in set(ordered)]
+    tensor = np.asarray(state, dtype=np.complex128).reshape([2] * num_qubits)
+    matrix = np.transpose(tensor, [*ordered, *rest]).reshape(
+        2 ** len(ordered), 2 ** len(rest)
+    )
+    values: npt.NDArray[np.float64] = np.linalg.svd(matrix, compute_uv=False)
+    return values
+
+
+def subsystem_purity(
+    state: npt.NDArray[np.complex128], qubits: Sequence[int], num_qubits: int
+) -> float:
+    """Purity Tr(rho^2) of ``qubits`` after tracing out the rest, in [0.5^k, 1].
+
+    The eigenvalues of the reduced density matrix are the squared Schmidt
+    coefficients, so this is their sum of squares and needs no density
+    matrix built. Exactly 1 means a product state; anything less means the
+    subsystem is entangled with the rest, and the further below 1, the
+    more entangled it is.
+
+    Purity rather than Schmidt rank as the reported number because rank is
+    a count thresholded at some epsilon, and a state one part in 10^9 away
+    from separable should read as almost separable rather than flipping a
+    integer.
+    """
+    values = schmidt_coefficients(state, qubits, num_qubits)
+    weights = values**2
+    total = float(weights.sum())
+    if total == 0:
+        return 0.0
+    weights = weights / total
+    return float((weights**2).sum())

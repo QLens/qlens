@@ -12,7 +12,9 @@ from typing import Any
 
 from qlens._assertions import (
     assert_distribution,
+    assert_entangled,
     assert_equivalent,
+    assert_separable,
     assert_state,
     assert_unitary,
 )
@@ -29,7 +31,7 @@ from qlens._inspect import Inspector, StateDiff, inspect
 from qlens._reliability import QlensStatisticsWarning
 from qlens.backends import Backend, available_backends, detect_backend, get_backend
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "Backend",
@@ -45,7 +47,9 @@ __all__ = [
     "UnsupportedCircuitError",
     "__version__",
     "assert_distribution",
+    "assert_entangled",
     "assert_equivalent",
+    "assert_separable",
     "assert_state",
     "assert_unitary",
     "available_backends",

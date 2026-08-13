@@ -33,6 +33,7 @@ Extras: `qlens[qiskit]`, `qlens[pennylane]`, `qlens[cirq]`, or any combination. 
 - `qlens.run(circuit)`: instrumented execution capturing the statevector after every gate, with lazy sampled counts.
 - `qlens.assert_distribution(result, expected)`: validates measurement output against an expected distribution by chi-square, a simulated p-value, total variation distance, or KS. When a method's assumptions don't hold for your data, Qlens says so and names the alternatives rather than switching methods behind your back.
 - `qlens.assert_state(result, expected, at=96)`: the statevector at any point in the run, compared by fidelity up to global phase. `at=` works on `assert_distribution` too, so checks mark the position they apply to.
+- `qlens.assert_separable(result, [2], at=88)`: the named qubits carry no correlation with the rest. Asserts a property rather than a value, so it needs no expected statevector — which is what catches the ancilla you forgot to uncompute. `assert_entangled` is its complement.
 - `qlens.assert_unitary(circuit)`: unitarity within numerical tolerance.
 - `qlens.assert_equivalent(a, b)`: same unitary up to global phase, across different gate decompositions.
 - `qlens.inspect(result)`: step-through debugging over the captured snapshots (cursor, per-position probabilities, state diffs with fidelity), with no re-execution.

@@ -8,7 +8,7 @@ numbers in the message.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -24,6 +24,7 @@ from qlens._stats import (
     max_unitarity_deviation,
     sparse_cells,
     state_fidelity,
+    subsystem_purity,
     total_variation_distance,
     tvd_noise_floor,
 )
@@ -33,6 +34,11 @@ DEFAULT_ATOL = 1e-8
 DEFAULT_SHOTS = 1024
 DEFAULT_TOLERANCE = 0.05
 DEFAULT_FIDELITY = 0.99
+# How far a subsystem's purity may sit below 1 and still count as a
+# product state. Simulator arithmetic is exact up to floating point, so
+# this only absorbs accumulated rounding across a long circuit, not
+# physical noise.
+DEFAULT_PURITY_ATOL = 1e-9
 
 
 def assert_unitary(
@@ -280,6 +286,115 @@ def assert_state(
         details=details, expected=None, at=at, method="fidelity",
         verdict=reliability.RELIABLE,
     )
+
+
+def assert_separable(
+    result: ExecutionResult,
+    qubits: Sequence[int],
+    *,
+    atol: float = DEFAULT_PURITY_ATOL,
+    at: int | None = None,
+) -> None:
+    """Assert ``qubits`` carry no correlation with the rest of the register.
+
+    A structural check: it asserts a property rather than a value, so it
+    needs no expected statevector. That matters for the case it exists
+    for — an ancilla that wasn't uncomputed. Mirroring a computation back
+    is what returns a scratch qubit to the rest of the circuit, and when
+    the mirror is missing the ancilla stays entangled with the data. The
+    interference the algorithm depends on is then destroyed, and the only
+    symptom at the end of the run is an answer that has gone from certain
+    to a coin flip.
+
+    Measured as the purity of the subsystem after tracing out the rest.
+    Exactly 1 is a product state; below 1 is entanglement.
+
+    ``at`` picks the gate position to check, defaulting to the end of the
+    run, and is where the viewer marks the assertion. Checking an ancilla
+    at the position it should have been released names the gate that
+    should have released it, rather than the far end of the circuit where
+    the symptom appears.
+    """
+    purity, count = _purity_at(result, qubits, at)
+    details = {"purity": purity, "atol": float(atol), "qubits": float(count)}
+    failure = None
+    if purity < 1.0 - atol:
+        names = ", ".join(f"q{q}" for q in sorted(qubits))
+        failure = (
+            f"{names} still entangled with the rest of the register: purity "
+            f"{purity:.6f} < 1 (tolerance {atol:g}). An ancilla that was not "
+            f"uncomputed leaves exactly this trace"
+        )
+    _finish(
+        result, "assert_separable", "state", failure,
+        details=details, expected=None, at=at, method="purity",
+        verdict=reliability.RELIABLE,
+    )
+
+
+def assert_entangled(
+    result: ExecutionResult,
+    qubits: Sequence[int],
+    *,
+    atol: float = DEFAULT_PURITY_ATOL,
+    at: int | None = None,
+) -> None:
+    """Assert ``qubits`` are correlated with the rest of the register.
+
+    The complement of :func:`assert_separable`, and the check for a
+    control that never took effect: a multiply-controlled operation whose
+    controls are routed wrongly can leave the target unentangled from the
+    qubits that were supposed to drive it, which no amount of looking at
+    the final distribution makes obvious.
+
+    Passing means the subsystem's purity is below 1, so measuring these
+    qubits does say something about the others.
+    """
+    purity, count = _purity_at(result, qubits, at)
+    details = {"purity": purity, "atol": float(atol), "qubits": float(count)}
+    failure = None
+    if purity >= 1.0 - atol:
+        names = ", ".join(f"q{q}" for q in sorted(qubits))
+        failure = (
+            f"{names} are separable from the rest of the register: purity "
+            f"{purity:.6f} is 1 within tolerance {atol:g}, so they carry no "
+            f"correlation with it"
+        )
+    _finish(
+        result, "assert_entangled", "state", failure,
+        details=details, expected=None, at=at, method="purity",
+        verdict=reliability.RELIABLE,
+    )
+
+
+def _purity_at(
+    result: ExecutionResult, qubits: Sequence[int], at: int | None
+) -> tuple[float, int]:
+    """Subsystem purity at a position, with the arguments validated first.
+
+    A subset naming every qubit, or none of them, has nothing on the other
+    side to be correlated with, so it is refused rather than answered with
+    a purity of 1 that would read as a passing separability check.
+    """
+    chosen = list(qubits)
+    if not chosen:
+        raise QlensError("qubits must name at least one qubit")
+    unique = sorted(set(chosen))
+    if len(unique) != len(chosen):
+        raise QlensError(f"qubits contains duplicates: {chosen}")
+    total = result.num_qubits
+    out_of_range = [q for q in unique if not 0 <= q < total]
+    if out_of_range:
+        raise QlensError(
+            f"qubits {out_of_range} outside the circuit's 0..{total - 1} range"
+        )
+    if len(unique) == total:
+        raise QlensError(
+            f"qubits names the whole {total}-qubit register; separability is a "
+            f"statement about a subsystem and the rest, so leave at least one out"
+        )
+    state = result.statevector_at(at if at is not None else -1)
+    return subsystem_purity(state, unique, total), len(unique)
 
 
 def _finish(

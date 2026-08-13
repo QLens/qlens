@@ -160,3 +160,133 @@ def test_finish_traces_is_idempotent(build: Any, sink_path: Path) -> None:
     assert tracing.finish_traces() == 1
     assert tracing.finish_traces() == 0
     assert len(_records(sink_path)) == 1
+
+
+# -- trimming a wide expectation ---------------------------------------
+
+
+def _expected(**kwargs: Any) -> dict[str, Any]:
+    from qlens.tracing._adapter import _expected_fields
+
+    return _expected_fields(kwargs)
+
+
+def test_an_all_zero_expectation_records_nothing() -> None:
+    """Dividing by the total would be a divide by zero, and there is no
+    distribution to ghost anyway."""
+    assert _expected(**{"00": 0.0, "01": 0.0}) == {}
+
+
+def test_a_small_expectation_is_recorded_whole_and_unflagged() -> None:
+    fields = _expected(**{"00": 0.5, "11": 0.5})
+    assert fields["expected"] == {"00": 0.5, "11": 0.5}
+    assert "expected_trimmed" not in fields
+
+
+def test_relative_weights_are_normalized() -> None:
+    fields = _expected(**{"00": 3.0, "11": 1.0})
+    assert fields["expected"] == {"00": 0.75, "11": 0.25}
+
+
+def test_zero_entries_are_dropped_rather_than_costing_the_whole_expectation() -> None:
+    """The case that lost the overlay on the 9-qubit demo run: a check
+    naming every outcome of a 512-state register so the sampler cannot
+    draw one it calls impossible, of which 496 are zero."""
+    from qlens.tracing._adapter import _MAX_EXPECTED_ENTRIES
+
+    wide = {format(i, "09b"): 0.0 for i in range(512)}
+    for i in range(16):
+        wide[format(i * 7, "09b")] = 1 / 16
+
+    fields = _expected(**wide)
+    assert len(fields["expected"]) == 16, "the nonzero outcomes fit easily"
+    assert len(fields["expected"]) <= _MAX_EXPECTED_ENTRIES
+    # Every outcome that carried probability survived, so the overlay is
+    # the whole distribution despite the entry count.
+    assert fields["expected_trimmed"]["coverage"] == pytest.approx(1.0)
+    assert fields["expected_trimmed"]["of"] == 512
+    assert fields["expected_trimmed"]["kept"] == 16
+
+
+def test_an_expectation_too_wide_to_carry_keeps_its_largest_outcomes() -> None:
+    """Which outcomes survive matters more than how many: a ghost of the
+    dominant terms is a useful overlay, a ghost of the negligible ones is
+    an empty chart."""
+    wide = {format(i, "012b"): float(i + 1) for i in range(1000)}
+    fields = _expected(**wide)
+    assert 0 < len(fields["expected"]) < 1000
+    assert format(999, "012b") in fields["expected"], "the largest is kept"
+    assert format(0, "012b") not in fields["expected"], "the smallest is not"
+
+
+def test_a_trimmed_expectation_reports_what_it_dropped() -> None:
+    wide = {format(i, "012b"): float(i + 1) for i in range(1000)}
+    trimmed = _expected(**wide)["expected_trimmed"]
+    assert trimmed["kept"] < trimmed["of"] == 1000
+    assert 0.0 < trimmed["coverage"] < 1.0, "some mass was genuinely lost"
+
+
+def test_a_kept_outcome_keeps_the_probability_the_check_expected() -> None:
+    """Normalizing against the kept total instead of the original would
+    inflate every surviving bar to cover the dropped mass."""
+    wide = {format(i, "012b"): 1.0 for i in range(1000)}
+    fields = _expected(**wide)
+    for probability in fields["expected"].values():
+        assert probability == pytest.approx(1 / 1000)
+
+
+def test_a_trimmed_expectation_survives_traceacts_payload_limit_at_every_width() -> None:
+    """The budget is bytes, not entries, because an entry's size follows
+    its bitstring width: 256 outcomes of a 6-qubit run serialize to about
+    2KB and the same 256 of a 12-qubit run to over 10KB. Counting entries
+    kept the narrow case safe and pushed the wide one past the limit,
+    which is where a wide expectation actually arrives.
+
+    Checked against TraceAct's limit rather than qlens's own budget, so
+    raising the budget past what TraceAct accepts fails here."""
+    import json
+
+    from qlens.tracing._adapter import _expected_fields
+
+    limit = _traceact_payload_limit()
+    for num_qubits in (4, 6, 9, 12, 16, 20):
+        width = min(2**num_qubits, 4096)
+        wide = {format(i, f"0{num_qubits}b"): float(i + 1) for i in range(width)}
+        recorded = _expected_fields(wide)["expected"]
+        size = len(json.dumps(recorded).encode())
+        assert size <= limit, f"{num_qubits} qubits serialized to {size} > {limit}"
+        assert recorded, f"{num_qubits} qubits kept nothing"
+
+def _traceact_payload_limit() -> int:
+    """TraceAct's own per-value budget, read from TraceAct rather than
+    restated here. The requirement these tests hold is that a recorded
+    expectation survives capture, which is a fact about TraceAct's limit,
+    not about whatever internal budget qlens picked to stay under it."""
+    from traceact.budget import BUDGET_DEFAULTS
+
+    return int(BUDGET_DEFAULTS["max_payload_bytes"])
+
+
+
+def test_no_trimmed_slice_ever_exceeds_the_payload_limit() -> None:
+    """The estimate isn't a reliable upper bound — repr and json disagree
+    on some floats, so a slice the estimate accepts can serialize a few
+    hundred bytes over. This fuzzes widths and random probabilities to
+    hold the exact re-measure honest; without it, some slice overshoots."""
+    import json
+    import random
+
+    from qlens.tracing._adapter import _expected_fields
+
+    limit = _traceact_payload_limit()
+    rng = random.Random(1)
+    for _ in range(400):
+        num_qubits = rng.randint(1, 16)
+        count = rng.randint(1, 500)
+        wide = {
+            format(rng.randrange(2**num_qubits), f"0{num_qubits}b"): rng.random()
+            for _ in range(count)
+        }
+        recorded = _expected_fields(wide).get("expected", {})
+        size = len(json.dumps(recorded).encode())
+        assert size <= limit, f"{num_qubits} qubits, {count} entries -> {size} > {limit}"

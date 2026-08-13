@@ -36,6 +36,18 @@ def assert_state() -> Any:
     return qlens.assert_state
 
 
+@pytest.fixture
+def assert_separable() -> Any:
+    """qlens.assert_separable, as a fixture."""
+    return qlens.assert_separable
+
+
+@pytest.fixture
+def assert_entangled() -> Any:
+    """qlens.assert_entangled, as a fixture."""
+    return qlens.assert_entangled
+
+
 @pytest.fixture(autouse=True)
 def _qlens_finish_traces() -> Any:
     """Close any trace left open by qlens.run(trace=...) when the test
