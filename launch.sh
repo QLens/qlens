@@ -11,24 +11,47 @@
 set -euo pipefail
 cd "$(dirname "$0")" || exit 1
 
-# Outside the project tree on purpose. A venv holding compiled numpy and
-# scipy extensions inside a synced folder (Dropbox, iCloud, OneDrive) has
-# its code signatures invalidated by sync churn, and macOS then refuses
-# to load the libraries.
-VENV="${QLENS_VENV:-$HOME/.venvs/qlens}"
+# In-tree .venv, kept out of sync services in place (see the xattr step
+# below). A venv is machine-specific and never syncs correctly anyway;
+# ignoring it where it sits matches what a clone outside a synced folder
+# already has, so there is one layout for every machine.
+VENV="${QLENS_VENV:-.venv}"
 PYTHON="$VENV/bin/python"
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "launch: python3 is not on PATH. Install Python 3.11 or newer." >&2
-  exit 1
-fi
+# The first interpreter that is Python 3.11 or newer. Bare python3 can be
+# an older pyenv or system build, so named versions and the common
+# framework/Homebrew locations are tried before falling back to it.
+find_python() {
+  local candidate version
+  for candidate in \
+    python3.13 python3.12 python3.11 \
+    /Library/Frameworks/Python.framework/Versions/3.1[1-9]/bin/python3 \
+    /opt/homebrew/bin/python3.1[1-9] \
+    /usr/local/bin/python3.1[1-9] \
+    python3; do
+    command -v "$candidate" >/dev/null 2>&1 || continue
+    version="$("$candidate" -c 'import sys; print(1 if sys.version_info[:2] >= (3, 11) else 0)' 2>/dev/null || echo 0)"
+    [ "$version" = "1" ] && { echo "$candidate"; return 0; }
+  done
+  return 1
+}
 
-# An existing directory proves nothing: a venv synced from another
-# machine or left by an interrupted install has a stale interpreter.
+# An existing directory proves nothing: a venv left by an interrupted
+# install, or one with a stale interpreter, fails the version probe.
 if [ ! -x "$PYTHON" ] || ! "$PYTHON" --version >/dev/null 2>&1; then
-  echo "launch: creating environment in $VENV"
+  if ! base_python="$(find_python)"; then
+    echo "launch: need Python 3.11 or newer. Install it from https://www.python.org/downloads/" >&2
+    exit 1
+  fi
+  echo "launch: creating environment in $VENV (using $base_python)"
   rm -rf "$VENV"
-  python3 -m venv "$VENV"
+  "$base_python" -m venv "$VENV"
+  # Keep sync services (Dropbox, iCloud, OneDrive) off the venv in place:
+  # sync churn invalidates the code signatures of compiled numpy/scipy
+  # extensions, and macOS then refuses to load them. Harmless off macOS or
+  # outside a synced folder, so it runs unconditionally and can't be
+  # forgotten. Set before any compiled dependency is installed.
+  xattr -w com.dropbox.ignored 1 "$VENV" 2>/dev/null || true
   "$PYTHON" -m ensurepip --upgrade >/dev/null
 fi
 

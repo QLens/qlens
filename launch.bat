@@ -11,7 +11,9 @@ REM option straight through.
 setlocal
 cd /d "%~dp0"
 
-if defined QLENS_VENV (set "VENV=%QLENS_VENV%") else (set "VENV=%USERPROFILE%\.venvs\qlens")
+REM In-tree .venv, matching the shell launchers. A venv is machine-specific
+REM and must never sync; keep it beside the project rather than in the profile.
+if defined QLENS_VENV (set "VENV=%QLENS_VENV%") else (set "VENV=.venv")
 set "PYTHON=%VENV%\Scripts\python.exe"
 
 python --version >nul 2>&1
