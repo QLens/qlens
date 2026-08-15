@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qlens"
-version = "0.6.0"
+version = "0.7.0"
 description = "A testing, debugging, and observability SDK for quantum programs, simulator-first."
 readme = "README.md"
 requires-python = ">=3.11"

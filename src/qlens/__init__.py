@@ -6,6 +6,8 @@ Public API:
     assert_unitary      -- circuit operation is unitary within tolerance
     assert_equivalent   -- two circuits share one unitary up to global phase
     assert_distribution -- sampled output matches an expected distribution
+    inspect             -- step through a run's captured statevectors
+    mutate              -- mutation-test a circuit against its own checks
 """
 
 from typing import Any
@@ -28,10 +30,11 @@ from qlens._errors import (
 )
 from qlens._execution import ExecutionResult, Snapshot
 from qlens._inspect import Inspector, StateDiff, inspect
+from qlens._mutate import MutantResult, MutationReport, mutate
 from qlens._reliability import QlensStatisticsWarning
 from qlens.backends import Backend, available_backends, detect_backend, get_backend
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "Backend",
@@ -39,6 +42,8 @@ __all__ = [
     "BackendNotInstalledError",
     "ExecutionResult",
     "Inspector",
+    "MutantResult",
+    "MutationReport",
     "QlensAssertionError",
     "QlensError",
     "QlensStatisticsWarning",
@@ -57,6 +62,7 @@ __all__ = [
     "detect_backend",
     "get_backend",
     "inspect",
+    "mutate",
     "run",
     "settings",
 ]

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 — 2026-08-15
+
+Mutation testing: check whether your checks would catch the bug.
+
+### Added
+
+- `qlens.mutate(circuit, check)` runs mutation testing over a circuit. It applies each bug in the documented catalog, runs `check` against every mutant, and returns a `MutationReport`: a mutant whose check fails is killed, one whose check passes survived, and every survivor is a change the check couldn't tell from the correct circuit. The score is the fraction of scored mutants killed.
+- Four mutation operators, one per catalog pattern: `reverse_control_target` (a controlled gate wired control-for-target), `substitute_gate` (a same-shape sibling in a gate's place), `inject_phase` (a spurious `Z`), and `delete_gate` (a missing gate, including a dropped uncompute). Select a subset with `operators=`, cap the run with `max_mutants=` and `seed=`.
+- Equivalent-mutant discard. A mutant that computes the same unitary as the original, up to global phase, is set aside rather than counted: no test could kill it, so scoring it would penalise a suite for arithmetic it can't observe. Telling an equivalent mutant from a missed one needs the full unitary, which a simulator has and hardware doesn't. Reversing a symmetric `CZ` is the standard example.
+- A canonical statevector simulator (`qlens._simulate`) behind the engine. Mutants are replayed on it rather than on the framework that built the circuit, so one code path mutates Qiskit, PennyLane, and Cirq circuits alike, including the PennyLane circuits that are Python functions with no gate list to edit. A test replays every backend gate through it and checks the state matches gate for gate, so the gate table can't drift from what the backends do.
+
 ## 0.6.0 — 2026-08-11
 
 Assertions aimed at documented bug patterns rather than at whatever was convenient to check.

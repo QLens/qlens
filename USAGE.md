@@ -81,7 +81,7 @@ def test_bell_distribution_cirq():
     qlens.assert_distribution(result, {"00": 0.5, "11": 0.5}, seed=0)
 ```
 
-Cirq has no qubit register: a circuit has exactly the qubits its operations touch. A qubit that should occupy an axis without being acted on needs an explicit `cirq.I`, which is Cirq's own way of saying so.
+Cirq has no qubit register: a circuit has only the qubits its operations touch. A qubit that should occupy an axis without being acted on needs an explicit `cirq.I`, which is Cirq's own way of saying so.
 
 ## qlens.run
 
@@ -155,7 +155,7 @@ least 1433 to populate every outcome.
 
 `on_unreliable_statistics` decides what that does: `warn` (the default) raises `qlens.QlensStatisticsWarning`, `error` refuses the result, `ignore` says nothing. The verdict records onto the trace under every policy, so the viewer flags the check either way.
 
-`tvd` gets the same treatment from the other direction: sampling never reproduces a distribution exactly, so a tolerance finer than the sampling noise at your shot count rejects correct circuits, and that's reported too.
+`tvd` gets the same treatment from the other direction: sampling never reproduces a distribution perfectly, so a tolerance finer than the sampling noise at your shot count rejects correct circuits, and that's reported too.
 
 **Reading the tolerance.** For the p-value tests, `tolerance` is a significance level, not a distance. `tolerance=0.05` means: reject when the observed counts would occur less than 5% of the time under the expected distribution. Raising it makes the test stricter. For `tvd`, `tolerance` is the distance itself: 0.02 allows the two distributions to disagree about 2% of their mass.
 
@@ -184,7 +184,7 @@ qlens.assert_separable(result, qubits, atol=1e-9, at=None)
 
 Asserts the named qubits carry no correlation with the rest of the register: measuring them tells you nothing about the others.
 
-This one asserts a *property*, not a value, so it needs no expected statevector. That's the point of it. `assert_state` requires you to already know the answer, which for anything you're debugging is exactly what you don't have.
+This one asserts a *property*, not a value, so it needs no expected statevector. That's the point of it. `assert_state` requires you to already know the answer, which for anything you're debugging is the thing you don't have.
 
 It exists for the ancilla you forgot to uncompute. Mirroring a computation back is what releases a scratch qubit; skip the mirror and the ancilla stays entangled with your data, silently, until some later interference step turns a certain answer into a coin flip.
 
@@ -193,7 +193,7 @@ result = qlens.run(circuit, trace=True)
 qlens.assert_separable(result, [2], at=88)   # the ancilla is free again by here
 ```
 
-Measured as the purity of the subsystem after tracing out the rest: exactly 1 is a product state, below 1 is entanglement. `atol` is how far below 1 still counts as separable, absorbing rounding accumulated across a long circuit.
+Measured as the purity of the subsystem after tracing out the rest: 1 is a product state, below 1 is entanglement. `atol` is how far below 1 still counts as separable, absorbing rounding accumulated across a long circuit.
 
 Naming every qubit in the register is refused rather than answered. The whole register is always separable from nothing, so it would be a check that passes on every circuit ever written.
 
@@ -203,7 +203,7 @@ Naming every qubit in the register is refused rather than answered. The whole re
 qlens.assert_entangled(result, qubits, atol=1e-9, at=None)
 ```
 
-The complement: asserts the named qubits *are* correlated with the rest. This is the check for a control that never took effect — a multiply-controlled operation whose controls are routed wrongly can leave the target uncorrelated with the qubits meant to drive it, and no amount of staring at the final distribution makes that obvious.
+The complement: asserts the named qubits *are* correlated with the rest. This is the check for a control that never took effect: a multiply-controlled operation whose controls are routed wrongly can leave the target uncorrelated with the qubits meant to drive it, and no amount of staring at the final distribution makes that obvious.
 
 ### assert_unitary
 
@@ -223,7 +223,7 @@ Asserts two circuits compute the same unitary, ignoring global phase. Different 
 
 ## Which bugs these catch
 
-The assertions above are aimed at documented bug patterns rather than at whatever seemed worth checking. Four patterns, each with the check that finds it:
+The assertions above are aimed at documented bug patterns rather than at whatever seemed convenient to check. Four patterns, each with the check that finds it:
 
 | Pattern | What it looks like | Caught by |
 |---|---|---|
@@ -232,7 +232,7 @@ The assertions above are aimed at documented bug patterns rather than at whateve
 | Phase error | a relative phase that leaves every measurement probability untouched | `assert_state` only |
 | Ancilla not uncomputed | a scratch qubit still entangled with the data | `assert_separable` |
 
-Two of these are worth understanding rather than just looking up.
+Two of these repay understanding rather than just looking up.
 
 **A phase error is invisible to measurement.** Not hard to see, *invisible*. Inject a relative phase into a GHZ circuit and the sampled counts come back byte-identical, so every distribution check passes:
 
@@ -242,17 +242,67 @@ counts, buggy   : {'111': 2012, '000': 2084}
 state fidelity  : 0.7500
 ```
 
-That isn't a shortcoming of `assert_distribution` — measurement can't distinguish those two states. It's the reason Qlens captures statevectors at all, and the reason a distribution check alone isn't a test of a quantum program.
+That isn't a shortcoming of `assert_distribution`: measurement can't distinguish those two states. It's the reason Qlens captures statevectors at all, and the reason a distribution check alone isn't a test of a quantum program.
 
 **A leaked ancilla is silent until it isn't.** Before anything interferes, the data qubit's own statistics are unchanged, so a check watching the data passes. The damage appears later, when the interference the algorithm depends on fails to happen and a deterministic answer spreads across every outcome. `assert_separable` sees it at the point it happens, because it asks about the correlation rather than about either qubit's own numbers.
 
 ### What these don't catch
 
-Worth stating plainly. In the largest study of quantum program bug fixes, **API misuse was the single biggest category — 30 of 96 bugs.** Qlens can't see any of them. Nor outdated API clients, nor misconfiguration, nor a wrong implementation approach. Those are static-analysis and code-review problems; [QChecker](https://arxiv.org/abs/2304.04387) is the tool shaped for them.
+Stated plainly. In the largest study of quantum program bug fixes, **API misuse was the single biggest category, 30 of 96 bugs.** Qlens can't see any of them. Nor outdated API clients, nor misconfiguration, nor a wrong implementation approach. Those are static-analysis and code-review problems; [QChecker](https://arxiv.org/abs/2304.04387) is the tool shaped for them.
 
-Qlens's slice is the semantic one: roughly a quarter of the bugs found in the wild, where the code runs cleanly and produces the wrong state. A lint pass and a state checker catch disjoint sets, and you want both.
+Qlens's slice is the semantic one: roughly a quarter of the bugs found in the wild, where the code runs without error and produces the wrong state. A lint pass and a state checker catch disjoint sets, and you want both.
 
 The framing here follows the taxonomy in Huang and Martonosi's [Statistical Assertions for Validating Patterns and Finding Bugs in Quantum Programs](https://ar5iv.labs.arxiv.org/html/1905.09721) (ISCA 2019), with frequency data from [A Comprehensive Study of Bug Fixes in Quantum Programs](https://arxiv.org/abs/2201.08662). The cross-framework endianness disagreement that drives the first pattern is catalogued as "quantum plumbing" in [An experience-based classification of quantum bugs](https://arxiv.org/abs/2509.03280), and is why [CONVENTIONS.md](https://github.com/QLens/qlens/blob/main/CONVENTIONS.md) exists.
+
+## Mutation testing
+
+The catalog above says which check finds which bug. Mutation testing asks the reverse: given the checks you already wrote, would they notice if the circuit were wrong? `qlens.mutate` introduces each catalog bug into your circuit one at a time, runs your check against the result, and reports which changes the check let through.
+
+```python
+import qlens
+from qiskit import QuantumCircuit
+
+def bell():
+    qc = QuantumCircuit(2)
+    qc.h(0)
+    qc.cx(0, 1)
+    return qc
+
+def check(result):
+    qlens.assert_state(result, [2**-0.5, 0, 0, 2**-0.5])
+
+report = qlens.mutate(bell(), check)
+print(report.summary())
+# mutation score 100%: 16 killed, 0 survived, 0 equivalent (of 16 mutants)
+
+for survivor in report.survived:
+    print(survivor.description)
+```
+
+A mutant whose check fails is *killed*; one whose check passes *survived*. Every survivor is a change your check couldn't tell apart from the correct circuit, so it's a bug your suite would let through. The score is the fraction of scored mutants killed.
+
+`check` receives the `ExecutionResult` of each mutant, so it carries whatever the circuit is supposed to satisfy: `assert_state`, `assert_distribution`, `assert_separable`, or any combination. An `AssertionError` (which every `qlens.assert_*` raises on failure) kills the mutant; returning without raising is a survivor.
+
+### The four operators
+
+Each operator introduces one family from the catalog:
+
+| Operator | Change it makes | Bug it models |
+|---|---|---|
+| `reverse_control_target` | swaps a controlled gate's control and target | wrong qubit order |
+| `substitute_gate` | replaces a gate with a same-shape sibling | wrong gate |
+| `inject_phase` | inserts a spurious `Z` after a gate | phase error |
+| `delete_gate` | removes one gate | missing gate, including a dropped uncompute |
+
+Pass `operators=[...]` to run a subset, `max_mutants=N` to cap how many run (sampled under `seed=`), and `args=` or `backend=` to forward to `qlens.run` for the original circuit.
+
+### Equivalent mutants
+
+Some changes make no difference. Reversing a `CZ`'s control and target computes the same unitary, because `CZ` is symmetric. On hardware you couldn't tell that mutant from one your test simply missed. On a simulator Qlens has the full unitary, so it compares the mutant's against the original's up to global phase and sets the equivalent ones aside. They don't count toward the score, because no test could kill them, and counting them would penalise a suite for arithmetic it can't observe.
+
+### What mutation testing needs
+
+`mutate` replays each mutant on Qlens's own canonical simulator, not on the framework that built the circuit. One code path then covers Qiskit, PennyLane, and Cirq alike, including the PennyLane circuits that are Python functions with no gate list to edit. The circuit must use gates that simulator models; a gate outside its vocabulary raises rather than being mutated around.
 
 ## Settings
 
@@ -375,7 +425,7 @@ ins.probabilities()    # {"00": 0.5, "11": 0.5} at the cursor
 
 ```python
 diff = ins.diff(0, 1)
-diff.fidelity            # |<a|b>|^2 — 1.0 means identical up to global phase
+diff.fidelity            # |<a|b>|^2, so 1.0 means identical up to global phase
 diff.amplitude_deltas    # {"10": (-0.707+0j), "11": (0.707+0j)}
 ```
 
@@ -417,7 +467,7 @@ Each assertion event carries what the viewer needs to make it clickable:
 | `method` | Which test ran: `chi_square`, `chi_square_exact`, `tvd`, `ks`, or `fidelity` for `assert_state`. |
 | `reliability` | Whether the method's assumptions held, and if not, a plain-language summary, the numbers behind it, and the alternatives. Recorded whatever `on_unreliable_statistics` is set to. |
 
-`assert_unitary` and `assert_equivalent` take a circuit, not a result, so they carry no link to the run under test. With exactly one traced run open they attach to it; with several they go unattributed rather than guess.
+`assert_unitary` and `assert_equivalent` take a circuit, not a result, so they carry no link to the run under test. With a single traced run open they attach to it; with several they go unattributed rather than guess.
 
 Event budgets are computed per run from the circuit itself, with a floor of 1000 events (`qlens.tracing.configure(max_events=...)` raises or lowers the floor). A `budget_hit` flag on a Qlens trace is an anomaly, never an expected artifact.
 
@@ -471,7 +521,7 @@ Every explanation comes in two registers, switchable from the guide header or Se
 
 A run opens at its first gate with playback at 0.5×, so the transport starts where the circuit does and moves at a pace a gate can be read at. Speeds run 0.25× to 2×.
 
-Dragging anywhere on the waterfall, the wire strip, or the scrubber moves the cursor. Hovering the waterfall or the strip names what happens at that column: the gate and its parameters, the layer it runs in, the other gates in that layer, and any check recorded there. The layer is the part worth reading, since gates in one layer share no qubit and therefore run together, which makes them the answer to what is active at a point rather than merely what is nearby. Double-clicking a column opens the State tab on it, so a spot that looks wrong in the field becomes the statevector that produced it in one gesture. On the State tab, hovering a bar reports its basis state, observed value, expected value, and divergence; clicking isolates it and dims the rest. The assertions table sorts on any column header and its widths drag, both remembered between sessions. **Collapse near-zero rows** drops basis states whose amplitude never exceeds a threshold anywhere in the run, which is what makes a 10-qubit run legible; a dashed rule marks where states were skipped.
+Dragging anywhere on the waterfall, the wire strip, or the scrubber moves the cursor. Hovering the waterfall or the strip names what happens at that column: the gate and its parameters, the layer it runs in, the other gates in that layer, and any check recorded there. The layer is the part to read, since gates in one layer share no qubit and therefore run together, which makes them the answer to what is active at a point rather than merely what is nearby. Double-clicking a column opens the State tab on it, so a spot that looks wrong in the field becomes the statevector that produced it in one gesture. On the State tab, hovering a bar reports its basis state, observed value, expected value, and divergence; clicking isolates it and dims the rest. The assertions table sorts on any column header and its widths drag, both remembered between sessions. **Collapse near-zero rows** drops basis states whose amplitude never exceeds a threshold anywhere in the run, which is what makes a 10-qubit run legible; a dashed rule marks where states were skipped.
 
 ### If something misbehaves
 
@@ -488,15 +538,15 @@ Events carry the values a branch tested rather than only the fact that it ran, s
 
 ### Zooming in
 
-The field lists what it responds to under the transport, so none of this has to be discovered. Scroll over the waterfall to zoom the time axis, hold shift and scroll to zoom the basis-state axis, and shift-drag to frame a region and jump straight to it. `+` and `-` do the same from the keyboard, `0` or `Escape` returns to the whole run, and a **Reset zoom** button appears whenever the field is showing less than everything. When it is, the panel says which slice you're looking at (`positions 74–159 of 209`) and a band on the transport shows where that slice sits in the run.
+The field lists what it responds to under the transport, so none of this has to be discovered. Scroll over the waterfall to zoom the time axis, hold shift and scroll to zoom the basis-state axis, and shift-drag to frame a region and jump straight to it. `+` and `-` do the same from the keyboard, `0` or `Escape` returns to the whole run, and a **Reset zoom** button appears whenever the field is showing less than everything. When it is, the panel says which slice you're looking at (`positions 74–159 of 209`) and a band on the transport shows where that slice falls in the run.
 
-Zooming matters because of what the field does when a run is bigger than the screen. Say a run has 4096 basis states and the panel is about a thousand pixels tall. They don't fit, so the server groups every four states into one row and draws the loudest of the four.
+Zooming is there because of what the field does when a run is bigger than the screen. Say a run has 4096 basis states and the panel is about a thousand pixels tall. They don't fit, so the server groups every four states into one row and draws the loudest of the four.
 
 Picture a security desk with 4096 cameras and 1000 monitors. Wire four cameras to each monitor, show whichever one has movement, and you'll see everything that happens. What you can't tell is which of the four rooms it happened in.
 
 Zooming in rewires the cameras. Ask for two hundred of those states and they get their own rows again, one state per row, exact amplitudes rather than a summary. There's no mode to switch and nothing to configure: the field bands rows only while the range you asked for is taller than the panel, so zooming far enough stops it on its own. The panel says `1 row = 4 states` whenever a row is still standing in for several, and stops saying it once each row is a state.
 
-The one number you can change is the ceiling. `qlens view --max-cells N` bounds how large a single request may get; the default holds a payload of roughly five megabytes. Hitting it costs rows rather than positions, since a narrower slice of time is a different question while coarser rows still answer the one you asked, and the panel shows `capped` when it happens rather than quietly handing back something coarser than you asked for.
+The one number you can change is the ceiling. `qlens view --max-cells N` bounds how large a single request may get; the default holds a payload of roughly five megabytes. Hitting it costs rows rather than positions, since a narrower slice of time is a different question while coarser rows still answer the one you asked, and the panel shows `capped` when it happens rather than silently handing back something coarser than you asked for.
 
 ### The JSON API
 
@@ -509,11 +559,11 @@ For anything that wants the data directly:
 | `GET /api/circuit?trace_id=` | One run: layers, gates, qstate refs, assertion records with their method and reliability verdict |
 | `GET /api/state?trace_id=&position=` | Amplitudes at a captured position (`-1` = final) |
 | `GET /api/waterfall?trace_id=` | Every position at once, reduced to display resolution |
-| `GET /api/stream` | Server-Sent Events: run summaries as they land or change |
+| `GET /api/stream` | Server-Sent Events: run summaries as they arrive or change |
 
 `/api/waterfall` accepts `max_rows` (display rows, default 512), `threshold` (drop basis states whose amplitude never reaches it), and a viewport: `pos_from`/`pos_to` over captured positions and `row_from`/`row_to` over the rows that survived the threshold, both half-open and both defaulting to the whole run. It returns two base64 `uint8` planes, `magnitude` and `phase`, laid out row-major at `rows × (view.pos_to - view.pos_from)`.
 
-The response reports the viewport it actually served in `view`, which isn't always the one asked for: a range arriving inverted, or hanging off the end of a run that reloaded shorter, is clamped to something that exists rather than refused. Draw against `view` rather than against what you requested and the axes stay in step with the pixels. `row_band` says how many basis states one row stands for, `view_rows` how many the viewport covers, and `capped` whether the payload ceiling forced coarser rows than `max_rows` allowed.
+The response reports the viewport it served in `view`, which isn't always the one asked for: a range arriving inverted, or hanging off the end of a run that reloaded shorter, is clamped to something that exists rather than refused. Draw against `view` rather than against what you requested and the axes stay in step with the pixels. `row_band` says how many basis states one row stands for, `view_rows` how many the viewport covers, and `capped` whether the payload ceiling forced coarser rows than `max_rows` allowed.
 
 Brightness is scaled against the whole run, never the viewport, so zooming in doesn't make a dim region look bright and two zoom levels of the same run stay comparable. Magnitude is normalized against `peak` and pre-warped by `mag_exponent` before quantizing: an amplitude field spans several decades, and 256 linear levels would put nearly all of it in the bottom bucket. `peak` is a high percentile rather than the maximum, because position 0 of any circuit is a basis state at magnitude 1 and would otherwise set the scale for the whole run.
 

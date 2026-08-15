@@ -9,7 +9,8 @@
         │        qlens public API         │
         │  run() · assert_distribution()  │
         │  assert_unitary() ·             │
-        │  assert_equivalent()            │
+        │  assert_equivalent() ·          │
+        │  inspect() · mutate()           │
         └───────┬───────────────┬────────┘
                 │               │
      ┌──────────▼─────┐   ┌─────▼──────────────┐
@@ -33,8 +34,8 @@
    └───────┬────┘ └────────┬───────┘ └───┬────────┘  └────────────────┘
            │               │             │
      ┌─────▼───────────────▼─────────────▼─────┐
-     │   ExecutionResult / Snapshot              │  (canonical shapes
-     │   (big-endian, one gate vocabulary,       │   and one gate name
+     │   ExecutionResult / Snapshot              │  (canonical forms
+     │   (big-endian, one gate vocabulary,       │   one gate name
      │    CONVENTIONS.md)                        │   per gate)
      └───────────────────────────────────────────┘
 
@@ -62,7 +63,7 @@
 
 **Gate vocabulary (`_gates.py`).** The frameworks spell the same gate three ways (`cx` / `CNOT` / `CNOT`, `h` / `Hadamard` / `H`), and absorbing that's a backend's job rather than a caller's. Each backend normalizes at its own boundary through one alias map held as data, so supporting a new framework's spellings is an entry there rather than a branch in the backend. The framework's own name survives on `Snapshot.native_gate`, and a gate outside the vocabulary passes through lowercased rather than being forced into a canonical name it doesn't have.
 
-**Statistics (`_stats.py`).** Framework-neutral: chi-square and KS wrappers over scipy, unitarity deviation, the phase-invariant matrix comparison shared by backends that lack a native up-to-phase equivalence check, and the bipartite split behind the separability assertions. That split reshapes a statevector into one axis per qubit, permutes the named qubits to the front, and takes the singular values of the resulting matrix; their squares are the reduced state's eigenvalues, so purity falls out without building a density matrix. Subsystems need not be contiguous, since an ancilla rarely sits at the end of a register.
+**Statistics (`_stats.py`).** Framework-neutral: chi-square and KS wrappers over scipy, unitarity deviation, the phase-invariant matrix comparison shared by backends that lack a native up-to-phase equivalence check, and the bipartite split behind the separability assertions. That split reshapes a statevector into one axis per qubit, permutes the named qubits to the front, and takes the singular values of the resulting matrix; their squares are the reduced state's eigenvalues, so purity falls out without building a density matrix. Subsystems need not be contiguous, since an ancilla is rarely at the end of a register.
 
 **Conformance (`conformance/`).** Canonical circuits expressed as neutral gate programs, with expected results computed by a bundled pure-numpy reference simulator written directly in the canonical conventions. `run_conformance(backend)` checks snapshots, final states, operator matrices, unitarity, sampled distributions, and equivalence verdicts. First-party backends certify through this same public path in the test suite; a third-party backend supplies one interpreter function from the neutral vocabulary to its own circuit type.
 
@@ -92,8 +93,8 @@
    └────────┬─────────┘          └───────────────────┘     └─────────────────┘
             │
    ┌────────▼─────────┐
-   │ Inspector           │   qlens.inspect(result)  — live results
-   │ (cursor, diff)      │   Inspector.from_trace() — stored traces
+   │ Inspector           │   qlens.inspect(result)  · live results
+   │ (cursor, diff)      │   Inspector.from_trace() · stored traces
    └───────────────────┘
 ```
 
@@ -101,7 +102,7 @@
 
 **Sidecar spool (`tracing/_spool.py`).** Amplitude arrays never enter trace records (TraceAct's payload budget would truncate them); every snapshot spools to a compressed `.npz` keyed by gate position, and events carry `statevector_ref` strings. `load_snapshots()` rebuilds a full snapshot list from a stored record plus sidecar.
 
-**Viewer server (`viewer/server.py`).** Stdlib `ThreadingHTTPServer` over a TraceAct source, read through `TraceLog` (which handles JSONL, folders, SQLite, and in-flight stub dedup). JSON endpoints for run lists, circuit structure, per-position amplitudes, the waterfall grid, and an SSE stream that emits run summaries as they land or change.
+**Viewer server (`viewer/server.py`).** Stdlib `ThreadingHTTPServer` over a TraceAct source, read through `TraceLog` (which handles JSONL, folders, SQLite, and in-flight stub dedup). JSON endpoints for run lists, circuit structure, per-position amplitudes, the waterfall grid, and an SSE stream that emits run summaries as they arrive or change.
 
 **Waterfall reduction (`viewer/_waterfall.py`).** The division of labour between server and browser. A 10-qubit, 400-gate run is 400k complex amplitudes; sending that as JSON isn't an option, so the reduction runs here in numpy and the payload is two base64 `uint8` planes at display resolution. Magnitude is normalized against a high percentile rather than the maximum (position 0 is a basis state at magnitude 1 and would otherwise set the scale for the whole run) and pre-warped before quantizing, since a linear 8-bit ramp puts an amplitude field almost entirely in the bottom bucket. Row banding keeps each band's largest-magnitude row, carrying that row's phase with it. Unpacked grids memoise on `(path, mtime)`, which is what makes scrubbing, threshold changes, and zooming cheap; `/api/state` reads exact amplitudes from the same cache.
 
@@ -113,11 +114,46 @@ One rule holds the interaction layer together: a pointer gesture never rebuilds 
 
 The two typefaces ship in `viewer/static/fonts/` (both SIL OFL 1.1) and are served from the package, so the viewer renders identically on a machine that has never installed them.
 
-**Sample runs (`viewer/_demo.py`).** `qlens view --demo` generates sample runs on the bundled reference simulator and records them through the ordinary path, so the demo needs no provider framework installed and shows exactly what an ordinary test produces.
+**Sample runs (`viewer/_demo.py`).** `qlens view --demo` generates sample runs on the bundled reference simulator and records them through the ordinary path, so the demo needs no provider framework installed and shows what an ordinary test produces.
 
 **Settings and reliability (`_config.py`, `_reliability.py`).** A test method is chosen by the caller, never by Qlens. `_config` resolves the defaults from `[tool.qlens]` in the nearest pyproject.toml, validated at the point they're set rather than at assertion time, and records the effective values onto every traced run. `_reliability` decides whether the chosen method's assumptions hold for the data it was handed and builds one verdict string used by the warning, the trace event, and the viewer alike, so all three say the same thing.
 
 **Inspector (`_inspect.py`).** A cursor over captured snapshots: stepping is list indexing, never re-execution. Works identically over a live `ExecutionResult` and a stored trace record resolved through the sidecar.
+
+## Mutation engine
+
+```
+   qlens.mutate(circuit, check)
+            │
+   ┌────────▼─────────────────────────┐
+   │  run(circuit) → canonical op list│
+   └────────┬─────────────────────────┘
+            │
+   ┌────────▼─────────────────────────┐
+   │  _mutations: four operators over │
+   │  the captured op list            │
+   └────────┬─────────────────────────┘
+            │  each mutant
+   ┌────────▼─────────────────────────┐
+   │  _simulate: replay each mutant   │
+   │  → statevector and unitary       │
+   └────────┬─────────────────────────┘
+            │
+   ┌────────▼─────────────────────────┐
+   │  equivalent? unitary == original │
+   │  up to global phase              │
+   │  yes → set aside, not scored     │
+   │  no  → check(result) kills or    │
+   │  lets the mutant survive         │
+   └────────┬─────────────────────────┘
+            │
+   ┌────────▼─────────────────────────┐
+   │  MutationReport:                 │
+   │  score, survivors, equivalents   │
+   └──────────────────────────────────┘
+```
+
+**Mutation engine (`_mutate.py`, `_mutations.py`, `_simulate.py`).** `qlens.mutate` mutation-tests a circuit against its own checks. The four operators in `_mutations.py` map one-to-one onto the bug-pattern catalog (reversed control/target, same-shape gate substitution, injected phase, deleted gate) and each returns a family of mutant op lists. A mutant is replayed on `_simulate.py`, a pure-numpy statevector simulator over the canonical gate vocabulary, rather than on the framework that built the circuit; that is why one path mutates all three backends, including the PennyLane circuits that are Python functions with no editable gate list. `_simulate` is deliberately separate from the conformance reference simulator, which stays an independent oracle so a shared bug can't hide from certification; a test replays every backend gate through `_simulate` and checks the state matches gate for gate. Equivalent mutants are found by comparing the mutant's unitary against the original's up to global phase and excluded from the score, a distinction the simulator can draw and hardware cannot.
 
 ## Tests
 

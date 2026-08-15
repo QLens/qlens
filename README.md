@@ -33,12 +33,13 @@ Extras: `qlens[qiskit]`, `qlens[pennylane]`, `qlens[cirq]`, or any combination. 
 - `qlens.run(circuit)`: instrumented execution capturing the statevector after every gate, with lazy sampled counts.
 - `qlens.assert_distribution(result, expected)`: validates measurement output against an expected distribution by chi-square, a simulated p-value, total variation distance, or KS. When a method's assumptions don't hold for your data, Qlens says so and names the alternatives rather than switching methods behind your back.
 - `qlens.assert_state(result, expected, at=96)`: the statevector at any point in the run, compared by fidelity up to global phase. `at=` works on `assert_distribution` too, so checks mark the position they apply to.
-- `qlens.assert_separable(result, [2], at=88)`: the named qubits carry no correlation with the rest. Asserts a property rather than a value, so it needs no expected statevector — which is what catches the ancilla you forgot to uncompute. `assert_entangled` is its complement.
+- `qlens.assert_separable(result, [2], at=88)`: the named qubits carry no correlation with the rest. Asserts a property rather than a value, so it needs no expected statevector, which is what catches the ancilla you forgot to uncompute. `assert_entangled` is its complement.
 - `qlens.assert_unitary(circuit)`: unitarity within numerical tolerance.
 - `qlens.assert_equivalent(a, b)`: same unitary up to global phase, across different gate decompositions.
 - `qlens.inspect(result)`: step-through debugging over the captured snapshots (cursor, per-position probabilities, state diffs with fidelity), with no re-execution.
+- `qlens.mutate(circuit, check)`: mutation testing for circuits. It introduces each catalogued bug (reversed control, wrong gate, spurious phase, deleted gate), runs your check against every mutant, and reports which ones survived, so you find out whether your tests would catch the bug instead of assuming they would. Mutants that compute the same unitary are set aside rather than counted against the score.
 - `qlens.run(circuit, trace=True)`: records the run as a [TraceAct](https://github.com/traceact/traceact) trace with statevector sidecars, assertion pass/fail events, and per-run event budgets.
-- `qlens view traces.jsonl`: a local viewer over recorded runs — the amplitude waterfall across every gate position, the statevector at any point against what a test expected, an A/B diff between two positions, and clickable assertion markers. Hovering names the gate at a column and the others running alongside it; zooming in gives each basis state its own row back once the range fits the panel. A built-in reading guide explains all of it for people new to quantum computing. `qlens view --demo` opens it on sample runs.
+- `qlens view traces.jsonl`: a local viewer over recorded runs: the amplitude waterfall across every gate position, the statevector at any point against what a test expected, an A/B diff between two positions, and clickable assertion markers. Hovering names the gate at a column and the others running alongside it; zooming in gives each basis state its own row back once the range fits the panel. A built-in reading guide explains all of it for people new to quantum computing. `qlens view --demo` opens it on sample runs.
 - Project settings in `pyproject.toml` under `[tool.qlens]`, or `qlens.configure()`, choosing how distributions are compared and what happens when a test's assumptions don't hold. Any call overrides them, and the settings in force are recorded onto the run.
 - A bundled pytest plugin: fixtures, a `qlens` marker, and automatic trace finalization per test.
 - A public backend contract with entry-point discovery, so further frameworks plug in as separate packages certified against a shipped conformance suite. Qiskit, PennyLane, and Cirq all register through it, with no private shortcuts.
@@ -66,4 +67,4 @@ the SIL Open Font License 1.1. Their licences ship beside them in
 
 ---
 
-Built by Mo Shehu — [mohammedshehu.com](https://mohammedshehu.com)
+By [Mo Shehu](https://mohammedshehu.com)

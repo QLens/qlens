@@ -239,7 +239,7 @@ def test_the_recorded_position_is_the_one_the_assertion_named(tmp_path: Any) -> 
 
     source = tmp_path / "traces.jsonl"
     configure(config=TraceConfig(sink_mode="blocking"), sinks=[JsonlSink(str(source))])
-    tracing.configure(state_dir=str(tmp_path / "qstates"))
+    tracing.configure(state_dir=str(tmp_path / "qstates"), project="qlens")
     try:
         result = qlens.run(bell(), trace=True)
         qlens.assert_distribution(result, {"00": 0.5, "10": 0.5}, at=0, seed=0)
