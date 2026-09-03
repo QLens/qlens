@@ -286,8 +286,10 @@ def schmidt_coefficients(
     matrix = np.transpose(tensor, [*ordered, *rest]).reshape(
         2 ** len(ordered), 2 ** len(rest)
     )
-    values: npt.NDArray[np.float64] = np.linalg.svd(matrix, compute_uv=False)
-    return values
+    # svd(compute_uv=False) returns real singular values; assert the dtype
+    # so the annotation holds across numpy stub versions, some of which
+    # type this as floating[Any] rather than float64.
+    return np.asarray(np.linalg.svd(matrix, compute_uv=False), dtype=np.float64)
 
 
 def subsystem_purity(
