@@ -8,6 +8,7 @@ Public API:
     assert_distribution -- sampled output matches an expected distribution
     inspect             -- step through a run's captured statevectors
     mutate              -- mutation-test a circuit against its own checks
+    coverage            -- gate coverage (run and check) over a test run
 """
 
 from typing import Any
@@ -28,13 +29,13 @@ from qlens._errors import (
     QlensError,
     UnsupportedCircuitError,
 )
-from qlens._execution import ExecutionResult, Snapshot
+from qlens._execution import ExecutionResult, Measurement, Snapshot
 from qlens._inspect import Inspector, StateDiff, inspect
 from qlens._mutate import MutantResult, MutationReport, mutate
 from qlens._reliability import QlensStatisticsWarning
 from qlens.backends import Backend, available_backends, detect_backend, get_backend
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "Backend",
@@ -42,6 +43,7 @@ __all__ = [
     "BackendNotInstalledError",
     "ExecutionResult",
     "Inspector",
+    "Measurement",
     "MutantResult",
     "MutationReport",
     "QlensAssertionError",
@@ -74,6 +76,7 @@ def run(
     backend: str | None = None,
     args: tuple[Any, ...] = (),
     trace: bool | str = False,
+    label: str | None = None,
 ) -> ExecutionResult:
     """Execute a circuit with per-gate statevector capture.
 
@@ -85,9 +88,15 @@ def run(
     circuit layer, final-state snapshot spooled to a sidecar file);
     ``trace="gates"`` records per-gate events and snapshots instead.
     Where the trace goes is TraceAct's configuration; see qlens.tracing.
+
+    ``label`` names the circuit for gate coverage when a coverage session
+    is active; without it the circuit's own name is used. See qlens.coverage.
     """
     resolved = get_backend(backend) if backend is not None else detect_backend(circuit)
     result = resolved.run(circuit, args=args)
+    from qlens import coverage
+
+    coverage.record_run(result, circuit, label=label)
     if trace:
         if trace not in (True, "gates"):
             raise QlensError(f"trace must be True or 'gates', got {trace!r}")

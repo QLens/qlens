@@ -79,14 +79,17 @@ def test_parameterized_qnode_args_pennylane() -> None:
     assert result.snapshots[0].params == {"p0": 0.7}
 
 
-def test_measure_rejected_qiskit() -> None:
+def test_measure_captured_not_rejected_qiskit() -> None:
     qiskit = pytest.importorskip("qiskit")
 
     circuit = qiskit.QuantumCircuit(1, 1)
     circuit.h(0)
     circuit.measure(0, 0)
-    with pytest.raises(qlens.UnsupportedCircuitError, match="non-unitary"):
-        qlens.run(circuit)
+    result = qlens.run(circuit)
+    # The measure is recorded structurally, not refused; the gate stream is
+    # the single Hadamard.
+    assert [s.gate for s in result.snapshots] == ["h"]
+    assert result.measurements == [qlens.Measurement(after=1, qubits=(0,))]
 
 
 def test_run_with_explicit_backend_name(build: Any, backend_name: str) -> None:

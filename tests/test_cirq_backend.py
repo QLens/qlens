@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 import qlens
+from qlens import Measurement
 from qlens._errors import UnsupportedCircuitError
 from qlens.backends import get_backend
 from qlens.backends._cirq import CirqBackend
@@ -37,29 +38,30 @@ def bell() -> object:
 # -- refusals -------------------------------------------------------------
 
 
-def test_a_measurement_mid_circuit_is_refused_by_name(backend: CirqBackend) -> None:
+def test_a_measurement_mid_circuit_is_captured_by_name(backend: CirqBackend) -> None:
     q = cirq.LineQubit.range(2)
     circuit = cirq.Circuit(
         [cirq.H(q[0]), cirq.measure(q[0], key="m"), cirq.X(q[1])],
         strategy=cirq.InsertStrategy.NEW,
     )
-    with pytest.raises(UnsupportedCircuitError) as excinfo:
-        backend.run(circuit)
-    assert "non-unitary" in str(excinfo.value)
-    assert "position 1" in str(excinfo.value), "the error should say which gate stopped it"
+    result = backend.run(circuit)
+    # The measure is recorded, not refused; the gate stream is H then X.
+    assert [s.gate for s in result.snapshots] == ["h", "x"]
+    assert result.measurements == [Measurement(after=1, qubits=(0,))]
 
 
 def test_reported_position_follows_moments_not_the_order_written(
     backend: CirqBackend,
 ) -> None:
     """Cirq packs operations on disjoint qubits into one moment, and a
-    moment's contents run together. Positions follow that, so the X below
-    is position 1 despite being written third."""
+    moment's contents run together. Gate positions follow that, so the X
+    below is position 1 despite being written third, and the measurement
+    that was written second lands after both gates."""
     q = cirq.LineQubit.range(2)
     circuit = cirq.Circuit([cirq.H(q[0]), cirq.measure(q[0], key="m"), cirq.X(q[1])])
-    with pytest.raises(UnsupportedCircuitError) as excinfo:
-        backend.run(circuit)
-    assert "position 2" in str(excinfo.value)
+    result = backend.run(circuit)
+    assert [(s.gate, s.position) for s in result.snapshots] == [("h", 0), ("x", 1)]
+    assert result.measurements == [Measurement(after=2, qubits=(0,))]
 
 
 def test_a_measured_circuit_has_no_operator_matrix(backend: CirqBackend) -> None:

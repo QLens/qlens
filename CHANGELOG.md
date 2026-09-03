@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.0 — 2026-09-03
+
+Gate coverage: which gate positions a test suite runs, and which it checks.
+
+### Added
+
+- `qlens.coverage`, a session that records two things per circuit across a test run: which gate positions any `qlens.run` executed, and which positions any `assert_*` validated (through its `at=`). `coverage.session()` scopes it programmatically and returns a report; the report renders as a coverage.py-style table (`Circuit`, `Gates`, `Run`, `Checked`, `Unchecked`) and serialises with `as_dict()`. The `Unchecked` column lists the gate positions that ran without any assertion, the gates a suite exercises but never verifies.
+- `--qlens-cov`, a pytest flag that opens a coverage session for the whole run and prints the report in the terminal summary, so coverage comes out of an ordinary `pytest` invocation with no code change.
+- `coverage.declare(circuit)` pins a circuit's full gate set as the run denominator without counting as execution, so `Run` coverage falls below 100% for gates a suite never reached: the classical-control-flow case. Circuits are keyed by an explicit `label=` on `qlens.run`, else the circuit's own name.
+- Structural measurement capture. `qlens.run` no longer refuses a circuit that measures; it records each measurement on `ExecutionResult.measurements` as a `Measurement(after, qubits)`, where `after` is the number of gates before it. Capture stays pure unitary evolution: the statevector runs on without collapsing, so a circuit that measures mid-way ends on the same state as one that doesn't. A measuring circuit still has no operator matrix, so `assert_unitary` and `assert_equivalent` refuse it as before. This is the structure a static lint pass reads (a gate following a measurement on the same qubit); `reset` and classical feed-forward stay unsupported.
+
+### Fixed
+
+- Type check under numpy's Python 3.11 stubs (2.4.x), which type `svd(compute_uv=False)` as `floating[Any]` rather than `float64`; the Schmidt-value helper now asserts the real dtype so the check passes on every supported numpy.
+
 ## 0.7.0 — 2026-08-15
 
 Mutation testing: check whether your checks would catch the bug.

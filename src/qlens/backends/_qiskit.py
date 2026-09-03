@@ -23,14 +23,20 @@ import numpy as np
 import numpy.typing as npt
 
 from qlens._errors import UnsupportedCircuitError
-from qlens._execution import ExecutionResult, Snapshot
+from qlens._execution import ExecutionResult, Measurement, Snapshot
 from qlens._gates import normalize
 from qlens._stats import max_unitarity_deviation
 from qlens.backends.base import Backend
 
 # Instructions that carry no unitary and no state change worth snapshotting.
 _SKIPPED = frozenset({"barrier", "delay"})
-_NON_UNITARY = frozenset({"measure", "reset", "initialize"})
+# Non-unitary instructions qlens.run refuses: they change the state in a way
+# pure statevector evolution can't follow. Measurement is handled apart from
+# these, recorded structurally rather than refused.
+_UNSUPPORTED = frozenset({"reset", "initialize"})
+# Everything without an operator matrix, refused by operator_matrix (which
+# includes measurement, unlike run).
+_NO_MATRIX = _UNSUPPORTED | {"measure"}
 
 
 def _to_big_endian_state(state: npt.NDArray[np.complex128], num_qubits: int) -> npt.NDArray[np.complex128]:
@@ -73,18 +79,22 @@ class QiskitBackend(Backend):
         num_qubits = bound.num_qubits
         state = Statevector.from_label("0" * num_qubits)
         snapshots: list[Snapshot] = []
+        measurements: list[Measurement] = []
         position = 0
         for instruction in bound.data:
             op = instruction.operation
             if op.name in _SKIPPED:
                 continue
-            if op.name in _NON_UNITARY:
+            qargs = [bound.find_bit(q).index for q in instruction.qubits]
+            if op.name == "measure":
+                measurements.append(Measurement(after=position, qubits=tuple(qargs)))
+                continue
+            if op.name in _UNSUPPORTED:
                 raise UnsupportedCircuitError(
                     f"instruction {op.name!r} at position {position} is non-unitary; "
                     "qlens.run captures pure statevector evolution (Phase 1 is "
                     "simulator-first, gate-based circuits only)"
                 )
-            qargs = [bound.find_bit(q).index for q in instruction.qubits]
             state = state.evolve(op, qargs=qargs)
             snapshots.append(
                 Snapshot(
@@ -112,6 +122,7 @@ class QiskitBackend(Backend):
             num_qubits=num_qubits,
             snapshots=snapshots,
             _counts_fn=lambda shots, seed: self.counts(circuit, shots=shots, seed=seed, args=args),
+            measurements=measurements,
         )
 
     # -- structural checks -------------------------------------------------
@@ -122,7 +133,7 @@ class QiskitBackend(Backend):
         from qiskit.quantum_info import Operator
 
         bound = self._bind(circuit, args)
-        if any(instr.operation.name in _NON_UNITARY for instr in bound.data):
+        if any(instr.operation.name in _NO_MATRIX for instr in bound.data):
             raise UnsupportedCircuitError(
                 "circuit contains non-unitary instructions (measure/reset); "
                 "it has no operator matrix"

@@ -55,6 +55,8 @@
 
 **Backend contract (`backends/base.py`).** The public, semver-governed ABC: `run`, `operator_matrix`, `is_unitary`, `equivalent`, `counts`, plus `name` and `handles()`. Semantic requirements live in CONVENTIONS.md; every output crossing a backend boundary is in canonical form.
 
+**Measurement capture.** Each backend records the measurements a circuit carries onto `ExecutionResult.measurements` as `Measurement(after, qubits)`, `after` being the gate count before it. Capture stays pure unitary evolution: the measurement is a structural marker, not a state change, so the snapshot stream never collapses and stays deterministic. The gate-position counter increments only on gates, so a measurement between gates leaves the gate positions contiguous. `operator_matrix` still refuses a measuring circuit, since it has no unitary. Qiskit reads `measure` instructions, Cirq reads measurement gates, PennyLane reads mid-circuit `MidMeasureMP` (its terminal return measurement stays ignored, as before); `reset` and classical feed-forward remain unsupported.
+
 **QiskitBackend.** Walks `circuit.data` evolving a `qiskit.quantum_info.Statevector` gate by gate (no Aer dependency), takes matrices from `quantum_info.Operator`, samples through `qiskit.primitives.StatevectorSampler`. Converts everything from Qiskit's little-endian conventions at the boundary: bitstrings reverse, statevectors and matrices permute by reversing qubit axis order.
 
 **PennyLaneBackend.** Builds the QNode's tape via `pennylane.workflow.construct_tape`, interleaves `qml.Snapshot()` markers after every operation (with leading identities so the device allocates all wires in canonical order), and executes once through the `qml.snapshots` transform on `default.qubit`. Matrices come from `qml.matrix` with an explicit wire order; counts execute a fresh tape measuring all wires. PennyLane's native conventions match the canonical form, so no reordering happens.
@@ -155,6 +157,8 @@ The two typefaces ship in `viewer/static/fonts/` (both SIL OFL 1.1) and are serv
 
 **Mutation engine (`_mutate.py`, `_mutations.py`, `_simulate.py`).** `qlens.mutate` mutation-tests a circuit against its own checks. The four operators in `_mutations.py` map one-to-one onto the bug-pattern catalog (reversed control/target, same-shape gate substitution, injected phase, deleted gate) and each returns a family of mutant op lists. A mutant is replayed on `_simulate.py`, a pure-numpy statevector simulator over the canonical gate vocabulary, rather than on the framework that built the circuit; that is why one path mutates all three backends, including the PennyLane circuits that are Python functions with no editable gate list. `_simulate` is deliberately separate from the conformance reference simulator, which stays an independent oracle so a shared bug can't hide from certification; a test replays every backend gate through `_simulate` and checks the state matches gate for gate. Equivalent mutants are found by comparing the mutant's unitary against the original's up to global phase and excluded from the score, a distinction the simulator can draw and hardware cannot.
 
+**Gate coverage (`coverage.py`).** A session accumulates two sets of gate positions per circuit: the positions any `run` executed, and the positions any `assert_*` validated. Both hook the same seams the tracer uses: `run` calls `coverage.record_run`, and the assertion `_record` seam calls `coverage.record_assertion` with the position's `at=`. Recording is active only inside a `coverage.session()` and never raises, so it costs nothing and breaks nothing when off. The denominator is the observed gate set unless `declare` pins a reference circuit, which is what lets run coverage fall below 100% for a branch a suite never reaches. The pytest plugin opens one session under `--qlens-cov` and prints the report at the terminal summary.
+
 ## Tests
 
 The Python suite runs under `pytest`, with order randomization on:
@@ -174,3 +178,127 @@ Both run in CI. The split follows what each can reach: `logic.js`,
 `draw.js`, and `ui.js` hold arithmetic and formatting that Node covers
 directly, while anything depending on measured layout is verified against
 a running viewer.
+
+## STRuFO
+
+A five-part orientation to the system: **S**hape, **T**echnical stack,
+**Ru**n details, **F**ailure modes, **O**bservability.
+
+### Shape
+
+Qlens is a simulator-first testing, debugging, and observability SDK for
+quantum programs: one pytest-native assertion API and one local viewer over
+Qiskit, PennyLane, and Cirq, built on instrumented execution that captures
+the full statevector after every gate. You write ordinary tests that check
+what the quantum state does, not only what the final measurement looks like.
+
+### Technical stack
+
+- **Language:** Python 3.11+, fully typed under `mypy --strict` with `ruff`.
+  The viewer's frontend is vanilla JavaScript with no framework, tested on
+  Node's built-in runner.
+- **Core dependencies:** `numpy` (statevectors, linear algebra), `scipy`
+  (chi-square, KS), `traceact >=0.14` (trace recording, itself
+  zero-runtime-dependency).
+- **Backends as optional extras:** `qiskit`, `pennylane`, `cirq`. Each
+  registers through a public entry-point contract certified against a
+  shipped conformance suite; none is a hard dependency, and a fourth
+  framework plugs in as a separate package.
+- **Storage:** compressed `.npz` sidecars for statevector arrays, JSONL
+  trace records via TraceAct. No database.
+- **Surfaces:** a bundled pytest plugin, a `qlens view` CLI (stdlib
+  `http.server`, no build step), and `[tool.qlens]` settings read from
+  `pyproject.toml`.
+
+### Run details, simple English
+
+You hand Qlens a quantum circuit and it runs it on a simulator, taking a
+photograph of the entire quantum state after every single gate. Then you
+write normal pytest tests that ask questions of those photographs: does the
+output match the distribution I expected, is this the exact state I meant to
+build, did I accidentally leave a scratch qubit tangled up with my data. The
+subtle part is that measurement hides bugs. Two quantum states can measure
+identically and still be different, so a test that only checks the final
+counts is not a full test of a quantum program. Qlens looks underneath. If a
+test fails, a local viewer lets you scrub through the run gate by gate and
+watch where the state went wrong. The same test works whether you wrote the
+circuit in Qiskit, PennyLane, or Cirq, because Qlens converts all three to
+one convention at the door.
+
+### Run details, technical
+
+`qlens.run(circuit)` detects the backend from the circuit's object type (or
+an explicit `backend=`). The backend binds any parameters, then walks the
+circuit gate by gate, evolving a statevector and converting it to Qlens's
+canonical big-endian convention at its own boundary. Each gate becomes a
+frozen `Snapshot`: position, one canonical lowercase gate name shared across
+every backend, the framework's native name, the qubit indices, the numeric
+params, and the full statevector after that gate. Measurements are recorded
+structurally onto `ExecutionResult.measurements` without collapsing the
+state, so capture stays pure unitary evolution. Sampled counts stay lazy
+behind a closure, so a purely structural inspection never pays the sampling
+cost.
+
+The returned `ExecutionResult` is what the assertions consume.
+`assert_distribution` draws counts and runs the caller's chosen test
+(chi-square, an exact simulated p-value, total variation distance, or KS).
+`assert_state` compares by fidelity up to global phase. `assert_separable`
+and `assert_entangled` reduce a named subsystem to its purity through
+Schmidt values, catching the un-uncomputed ancilla no distribution check can
+see. Every assertion funnels through one `_record` seam that feeds two
+consumers, the tracer and the coverage session. With `trace=True` the run
+spools snapshot arrays to `.npz` and emits gate, qstate, and assertion
+events through TraceAct under a per-run event budget. If a coverage session
+is open, the run records which gate positions executed and which positions
+an assertion validated. Project defaults resolve once from `[tool.qlens]`
+and are stamped onto every traced run.
+
+### Failure modes
+
+Failures are typed and named per cause, and nothing changes your test method
+behind your back.
+
+- **Non-unitary instructions:** `reset`, `initialize`, and classical
+  feed-forward raise `UnsupportedCircuitError`; Qlens captures pure
+  statevector evolution. Measurement is the deliberate exception, captured
+  as a structural marker rather than refused.
+- **Unbound parameters** raise with the count and the fix (pass values via
+  `args=`).
+- **Backend resolution:** `BackendNotFoundError` for an unknown name,
+  `BackendNotInstalledError` for a registered backend whose provider is not
+  installed.
+- **Assertion failure** raises `QlensAssertionError`, an `AssertionError`
+  subclass, so pytest treats it natively, carrying the measured numbers in
+  the message.
+- **Statistical unreliability:** when a chosen test's assumptions do not
+  hold (a sparse chi-square, a tvd tolerance below the sampling noise
+  floor), Qlens builds one verdict and routes it through
+  `on_unreliable_statistics` (warn, raise, or ignore) as a
+  `QlensStatisticsWarning`. It names the alternatives rather than switching
+  methods silently.
+- **Bookkeeping never breaks a run:** tracing and coverage recording swallow
+  their own exceptions, so a failing sink or hook cannot touch the test
+  result.
+- **Mutation testing** refuses a gate outside its canonical simulator's
+  vocabulary rather than mutating around it.
+
+### Observability
+
+- **Traces:** every run can record as a TraceAct trace correlated by run id:
+  one gate event per circuit layer (or per gate), a final qstate event, and
+  one assertion event per `assert_*` call, all under a per-run event budget
+  computed from the circuit, so `budget_hit` becomes a meaningful anomaly
+  signal instead of an expected artifact. Heavy statevector arrays spool to
+  `.npz` sidecars; events carry references, not the arrays.
+- **The viewer (`qlens view`):** an amplitude waterfall across every gate
+  position, the statevector at any point against what a test expected, an
+  A/B diff between two positions, clickable assertion pass/fail markers, and
+  a built-in reading guide for people new to quantum computing. Live runs
+  stream in over SSE.
+- **Post-hoc metrics at zero simulator cost:** gate coverage (which
+  positions ran, which an assertion checked, via `pytest --qlens-cov`) and a
+  mutation score (which injected bugs the tests caught) are computed from
+  recorded data after the fact.
+- **One verdict, three surfaces:** the reliability verdict is computed once
+  and shown identically in the warning, the trace event, and the viewer, so
+  all three tell the same story.

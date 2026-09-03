@@ -438,12 +438,13 @@ def _record(
     shows; ``expected`` the reference distribution it ghosts behind the
     observed bars.
     """
-    from qlens import tracing
+    from qlens import coverage, tracing
 
     tracing.record_assertion(
         result, name, target, error,
         details=details, expected=expected, at=at, method=method, verdict=verdict,
     )
+    coverage.record_assertion(result, at)
 
 
 def _as_counts(

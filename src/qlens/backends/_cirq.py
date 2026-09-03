@@ -37,7 +37,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qlens._errors import UnsupportedCircuitError
-from qlens._execution import ExecutionResult, Snapshot
+from qlens._execution import ExecutionResult, Measurement, Snapshot
 from qlens._gates import FIXED_EXPONENT, normalize
 from qlens._stats import max_unitarity_deviation, phase_invariant_allclose
 from qlens.backends.base import Backend
@@ -71,7 +71,13 @@ class CirqBackend(Backend):
         buffer = np.empty_like(state)
 
         snapshots: list[Snapshot] = []
-        for position, operation in enumerate(bound.all_operations()):
+        measurements: list[Measurement] = []
+        position = 0
+        for operation in bound.all_operations():
+            if cirq.is_measurement(operation):
+                measured = tuple(axis_of[qubit] for qubit in operation.qubits)
+                measurements.append(Measurement(after=position, qubits=measured))
+                continue
             if not cirq.has_unitary(operation):
                 raise UnsupportedCircuitError(
                     f"operation {operation!r} at position {position} is non-unitary; "
@@ -104,6 +110,7 @@ class CirqBackend(Backend):
                     statevector=state.reshape(-1).copy(),
                 )
             )
+            position += 1
 
         if not snapshots:
             initial = np.zeros(2**num_qubits, dtype=np.complex128)
@@ -116,6 +123,7 @@ class CirqBackend(Backend):
             num_qubits=num_qubits,
             snapshots=snapshots,
             _counts_fn=lambda shots, seed: self.counts(circuit, shots=shots, seed=seed, args=args),
+            measurements=measurements,
         )
 
     # -- structural checks -------------------------------------------------

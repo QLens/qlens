@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qlens"
-version = "0.7.0"
+version = "0.8.0"
 description = "A testing, debugging, and observability SDK for quantum programs, simulator-first."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -99,6 +99,9 @@ target-version = "py311"
 # convention. Broad catches around trace emission are the contract, not
 # an oversight.
 "src/qlens/tracing/__init__.py" = ["BLE001", "S112"]
+# Coverage bookkeeping must never break a passing run or assertion, so
+# its record hooks swallow anything they raise. Same contract as tracing.
+"src/qlens/coverage.py" = ["BLE001"]
 # A request handler converts any per-request failure into a 500 response
 # rather than killing the server thread.
 "src/qlens/viewer/server.py" = ["BLE001"]

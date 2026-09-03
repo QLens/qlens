@@ -104,8 +104,9 @@ Executes a circuit with per-gate statevector capture and returns an `ExecutionRe
 | `statevector_at(position)` | Statevector immediately after the gate at that position. |
 | `final_statevector` | Statevector after the last gate. |
 | `counts(shots=1024, seed=None)` | Sampled measurement counts over all qubits, big-endian bitstring keys. Lazy and cached per (shots, seed). |
+| `measurements` | The measurements the circuit carries, each a `Measurement(after, qubits)` where `after` is the number of gates before it. |
 
-Any measurement the circuit itself declares is ignored: Qlens measures all qubits in the computational basis, identically on every backend. Circuits containing mid-circuit measurement or reset raise `UnsupportedCircuitError` (Phase 1 captures pure statevector evolution).
+For sampling, any measurement the circuit itself declares is ignored: Qlens measures all qubits in the computational basis, identically on every backend. A measurement is still recorded on `measurements` for inspection, but it does not collapse the captured statevector: `snapshots` stay pure unitary evolution, so a circuit that measures mid-way ends on the same state as one that doesn't. A measuring circuit has no operator matrix, so `assert_unitary` and `assert_equivalent` refuse it. Reset and classical feed-forward raise `UnsupportedCircuitError` (Phase 1 captures pure statevector evolution).
 
 ## Assertions
 
@@ -303,6 +304,56 @@ Some changes make no difference. Reversing a `CZ`'s control and target computes 
 ### What mutation testing needs
 
 `mutate` replays each mutant on Qlens's own canonical simulator, not on the framework that built the circuit. One code path then covers Qiskit, PennyLane, and Cirq alike, including the PennyLane circuits that are Python functions with no gate list to edit. The circuit must use gates that simulator models; a gate outside its vocabulary raises rather than being mutated around.
+
+## Gate coverage
+
+Gate coverage answers two questions about a circuit's gates over a whole test run. **Run**: did the suite ever execute this gate position? **Checked**: did any `assert_*` validate the state at this position? A suite can run a hundred gates and check the final one; coverage is what makes that visible.
+
+The simplest way to see it is the pytest flag. It opens a coverage session for the whole run and prints a report at the end:
+
+```bash
+pytest --qlens-cov
+```
+
+```
+Qlens gate coverage
+
+Circuit  Gates   Run  Checked  Unchecked
+----------------------------------------
+bell         2  100%      50%  1
+grover      11  100%       9%  0-9
+----------------------------------------
+TOTAL       13  100%      15%
+```
+
+`Unchecked` lists the gate positions that ran without any assertion behind them: the gates the suite exercises but never verifies. Circuits are named by a Qiskit `QuantumCircuit` name or a PennyLane function name; pass `label=` to `qlens.run` to name one explicitly or to group runs of the same circuit across tests.
+
+The same coverage is available programmatically. A session records every `qlens.run` and `assert_*` made inside it:
+
+```python
+from qlens import coverage
+
+with coverage.session() as cov:
+    result = qlens.run(bell, label="bell")
+    qlens.assert_state(result, expected, at=1)
+
+report = cov.report()
+print(report.table())      # the table above
+report.as_dict()           # the same figures as JSON-ready data
+```
+
+### Run coverage and control flow
+
+By default `Run` is 100%: the denominator is the gates the suite actually ran, so everything that ran is covered. It falls below 100% when you pin a reference circuit and the suite never reaches some of its gates. `declare` records a circuit's full gate set as the denominator without counting as execution:
+
+```python
+with coverage.session() as cov:
+    coverage.declare(full_circuit, label="ansatz")   # every gate, the denominator
+    qlens.run(short_path, label="ansatz")            # a run that skips some
+report = cov.report()
+```
+
+Positions are matched by index, so one label should name one circuit shape. A builder whose branches place different gates at the same index should pass distinct labels.
 
 ## Settings
 

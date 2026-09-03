@@ -51,6 +51,26 @@ class Snapshot:
             object.__setattr__(self, "native_gate", self.gate)
 
 
+@dataclass(frozen=True)
+class Measurement:
+    """A measurement recorded structurally, without collapsing the state.
+
+    Qlens captures pure unitary evolution: a measurement is noted where it
+    appears in the gate sequence, on which qubits, but the statevector runs
+    on as if it had not happened. Mid-circuit collapse and classical
+    feed-forward are out of scope; this records the act for structural
+    analysis (which qubits a circuit measures, and whether a gate follows a
+    measurement on the same qubit), not its effect on the state.
+
+    after: the number of gates executed before this measurement, so a gate
+        at position ``p`` follows this measurement when ``p >= after``.
+    qubits: the measured qubit indices, in canonical order.
+    """
+
+    after: int
+    qubits: tuple[int, ...]
+
+
 @dataclass
 class ExecutionResult:
     """Everything captured from one instrumented circuit execution.
@@ -69,6 +89,14 @@ class ExecutionResult:
     # Set by qlens.run(trace=...): the open TracedRun this execution
     # recorded to, so later assert_* calls append to the same trace.
     traced_run: Any = field(default=None, repr=False, compare=False)
+    # Set by qlens.run() when a coverage session is active: the circuit key
+    # this run recorded under, so later assert_* calls attribute the
+    # positions they check to the same circuit.
+    coverage_key: str | None = field(default=None, repr=False, compare=False)
+    # Measurements the circuit carries, in execution order. Recorded
+    # structurally (see Measurement); the statevector snapshots above run
+    # on as pure unitary evolution regardless.
+    measurements: list[Measurement] = field(default_factory=list)
 
     def statevector_at(self, position: int) -> npt.NDArray[np.complex128]:
         """Statevector immediately after the gate at the given position.

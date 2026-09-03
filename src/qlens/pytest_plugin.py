@@ -15,6 +15,15 @@ import pytest
 import qlens
 
 
+def pytest_addoption(parser: Any) -> None:
+    parser.addoption(
+        "--qlens-cov",
+        action="store_true",
+        default=False,
+        help="report qlens gate coverage (run and check) at the end of the run",
+    )
+
+
 def pytest_configure(config: Any) -> None:
     config.addinivalue_line(
         "markers", "qlens: marks a test as a qlens quantum circuit test"
@@ -28,6 +37,31 @@ def pytest_configure(config: Any) -> None:
     from qlens import _config
 
     _config.load_project_settings(config.rootpath)
+
+    if config.getoption("--qlens-cov", default=False):
+        from qlens import coverage
+
+        config._qlens_cov = coverage.begin()
+
+
+def pytest_terminal_summary(
+    terminalreporter: Any, exitstatus: int, config: Any
+) -> None:
+    session = getattr(config, "_qlens_cov", None)
+    if session is None:
+        return
+    terminalreporter.write_line("")
+    for line in session.report().table().splitlines():
+        terminalreporter.write_line(line)
+
+
+def pytest_unconfigure(config: Any) -> None:
+    session = getattr(config, "_qlens_cov", None)
+    if session is not None:
+        from qlens import coverage
+
+        coverage.end(session)
+        config._qlens_cov = None
 
 
 @pytest.fixture

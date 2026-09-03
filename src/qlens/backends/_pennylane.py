@@ -14,9 +14,11 @@ The provider package is imported inside methods, never at module level,
 so the registry can load this module and call handles() without
 pennylane installed.
 
-The user's declared measurement (``qml.expval`` etc.) is ignored
+The user's terminal return measurement (``qml.expval`` etc.) is ignored
 everywhere: Qlens derives snapshots and counts from circuit structure
-alone, keeping run()'s contract identical across backends.
+alone, keeping run()'s contract identical across backends. A mid-circuit
+measurement (``qml.measure``) is recorded on the result structurally,
+without collapsing the captured state; see qlens._execution.Measurement.
 """
 
 from __future__ import annotations
@@ -27,12 +29,16 @@ import numpy as np
 import numpy.typing as npt
 
 from qlens._errors import UnsupportedCircuitError
-from qlens._execution import ExecutionResult, Snapshot
+from qlens._execution import ExecutionResult, Measurement, Snapshot
 from qlens._gates import normalize
 from qlens._stats import max_unitarity_deviation, phase_invariant_allclose
 from qlens.backends.base import Backend
 
-_NON_UNITARY = frozenset({"MidMeasureMP", "Conditional"})
+# Classical feed-forward has no place in pure statevector evolution and is
+# refused. A mid-circuit measurement is handled apart, recorded structurally
+# rather than refused (see _MEASUREMENT).
+_UNSUPPORTED = frozenset({"Conditional"})
+_MEASUREMENT = "MidMeasureMP"
 
 
 class PennyLaneBackend(Backend):
@@ -54,7 +60,17 @@ class PennyLaneBackend(Backend):
         wires = self._wire_list(tape, circuit)
         num_qubits = len(wires)
 
-        ops = list(tape.operations)
+        # Mid-circuit measurements are recorded structurally and left out of
+        # the executed tape, so default.qubit never collapses the state:
+        # capture stays pure unitary evolution.
+        ops: list[Any] = []
+        measurements: list[Measurement] = []
+        for op in tape.operations:
+            if op.name == _MEASUREMENT:
+                measured = tuple(wires.index(w) for w in op.wires)
+                measurements.append(Measurement(after=len(ops), qubits=measured))
+                continue
+            ops.append(op)
         # Leading identities allocate every wire in canonical order before
         # any real gate runs. Without them default.qubit tracks only the
         # wires touched so far, so early snapshots would span a subsystem
@@ -100,6 +116,7 @@ class PennyLaneBackend(Backend):
             num_qubits=num_qubits,
             snapshots=snapshots,
             _counts_fn=lambda shots, seed: self.counts(circuit, shots=shots, seed=seed, args=args),
+            measurements=measurements,
         )
 
     # -- structural checks -------------------------------------------------
@@ -110,6 +127,11 @@ class PennyLaneBackend(Backend):
         import pennylane as qml
 
         tape = self._tape(circuit, args)
+        if any(op.name == _MEASUREMENT for op in tape.operations):
+            raise UnsupportedCircuitError(
+                "circuit contains a mid-circuit measurement; it has no operator "
+                "matrix"
+            )
         wires = self._wire_list(tape, circuit)
         matrix = qml.matrix(tape, wire_order=wires)
         return np.asarray(matrix, dtype=np.complex128)
@@ -155,7 +177,7 @@ class PennyLaneBackend(Backend):
         from pennylane.workflow import construct_tape
 
         tape = construct_tape(circuit)(*args)
-        bad = [op.name for op in tape.operations if type(op).__name__ in _NON_UNITARY]
+        bad = [op.name for op in tape.operations if type(op).__name__ in _UNSUPPORTED]
         if bad:
             raise UnsupportedCircuitError(
                 f"circuit contains non-unitary operations {bad}; qlens captures "
