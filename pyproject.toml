@@ -55,6 +55,7 @@ dev = [
     "pytest-randomly>=3.15",
     "mypy>=1.10",
     "ruff>=0.5",
+    "shiplock>=0.3,<0.4",
 ]
 
 [project.urls]

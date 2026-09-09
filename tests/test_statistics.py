@@ -156,15 +156,17 @@ def test_error_policy_refuses_the_result() -> None:
 
 def test_ignore_policy_is_silent() -> None:
     verdict = reliability.sparse_chi_square(2, 4, 0.01, 5.0)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         reliability.report(verdict, "ignore", "assert_distribution")
+    assert caught == []
 
 
 def test_a_reliable_verdict_never_reports() -> None:
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         reliability.report(reliability.RELIABLE, "error", "assert_distribution")
+    assert caught == []
 
 
 # -- degenerate inputs -------------------------------------------------

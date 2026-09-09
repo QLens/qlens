@@ -1,0 +1,39 @@
+# Shiplock: deterministic docs-vs-code release checks for Qlens.
+# Run `shiplock check` locally; the same checks run in pytest and CI.
+
+[docs]
+public = ["README.md", "USAGE.md", "ARCHITECTURE.md", "CONVENTIONS.md", "CHANGELOG.md"]
+changelog = "CHANGELOG.md"
+readme = "README.md"
+
+[style]
+source_globs = ["src/qlens/**/*.py", "scripts/**/*.py"]
+# "real" is exempted only for the numpy complex-number attribute (a.real,
+# state.real): the real part of a complex amplitude has no other spelling.
+# Prose still avoids the word by house convention.
+allow = ["real"]
+
+[version]
+package = "qlens"
+
+[architecture]
+doc = "ARCHITECTURE.md"
+source_dir = "src/qlens"
+exempt = ["__init__"]
+
+[tests]
+# Flag test functions that assert nothing (0.3.0+). conftest.py holds
+# fixtures, not tests, so it stays out.
+globs = ["tests/test_*.py"]
+
+[manifest]
+doc = "MANIFEST.md"
+sources = [
+    "src/qlens/**/*.py",
+    "src/qlens/viewer/static/*.js",
+    "src/qlens/viewer/static/*.css",
+    "src/qlens/viewer/static/*.html",
+    "scripts/**/*.py",
+    "tests/**/*.py",
+    "tests/js/*.js",
+]

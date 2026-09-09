@@ -1,0 +1,46 @@
+name: shiplock
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# The audit opens an issue when it fails, so the run needs to write issues.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  # KeyCall preflight: validate the audit keys and confirm the primary model
+  # is in its catalogue before the billable audit runs. Gates the gate.
+  keyverify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install keycall
+      - name: KeyCall preflight
+        env:
+          AUDIT_API_KEY: ${{ secrets.AUDIT_API_KEY }}
+          AUDIT_FALLBACK_API_KEY: ${{ secrets.AUDIT_FALLBACK_API_KEY }}
+          # Keep in sync with the gate job's audit-model / audit-fallback-model.
+          AUDIT_MODEL: "gpt-5.1"
+          AUDIT_FALLBACK_MODEL: "sonnet"
+        run: python scripts/keycall_preflight.py
+
+  gate:
+    needs: keyverify
+    uses: shehuphd/shiplock/.github/workflows/gate.yml@main
+    with:
+      shiplock-spec: "shiplock>=0.3,<0.4"
+      run-audit: true
+      # Primary key is OpenAI; fallback key is Anthropic. Cross-provider
+      # failover, so each attempt names a model in its own provider's naming.
+      audit-model: "gpt-5.1"
+      audit-fallback-model: "sonnet"
+    secrets:
+      AUDIT_API_KEY: ${{ secrets.AUDIT_API_KEY }}
+      AUDIT_FALLBACK_API_KEY: ${{ secrets.AUDIT_FALLBACK_API_KEY }}

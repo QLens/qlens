@@ -51,6 +51,12 @@
 
 **Public API (`qlens/__init__.py`).** `run()` resolves a backend (by name, or by detection) and returns an `ExecutionResult`. The `assert_*` functions detect the backend from the circuit object and raise `QlensAssertionError` (an `AssertionError` subclass) on failure.
 
+**Execution result (`_execution.py`).** The `ExecutionResult`, `Snapshot`, and `Measurement` dataclasses every backend fills in. Public, semver-governed forms in canonical conventions; counts stay lazy behind a closure so a structural inspection never pays the sampling cost.
+
+**Errors (`_errors.py`).** The exception hierarchy under one `QlensError` base: `QlensAssertionError` (an `AssertionError` subclass, so pytest treats a failed assertion natively), `UnsupportedCircuitError`, and the backend-resolution errors `BackendNotFoundError` and `BackendNotInstalledError`.
+
+**Pytest plugin (`pytest_plugin.py`).** Registers under pytest's `pytest11` group on install: the `qlens` marker, `assert_*` fixtures, per-test trace finalization, and the `--qlens-cov` gate-coverage flag, so a project's test run picks these up with no conftest wiring.
+
 **Registry (`backends/_registry.py`).** Discovers backends exclusively through the `qlens.backends` entry-point group; the first-party backends register in qlens's own pyproject.toml through that group. Detection polls each backend's `handles()` classmethod, which identifies circuit types by module-name inspection without importing the framework. Backends load lazily and are cached per process.
 
 **Backend contract (`backends/base.py`).** The public, semver-governed ABC: `run`, `operator_matrix`, `is_unitary`, `equivalent`, `counts`, plus `name` and `handles()`. Semantic requirements live in CONVENTIONS.md; every output crossing a backend boundary is in canonical form.
