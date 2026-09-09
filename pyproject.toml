@@ -40,7 +40,7 @@ dependencies = [
     # The trace layer and viewer are built on TraceAct's record format;
     # it's core infrastructure, not an optional integration. Zero
     # transitive dependencies of its own.
-    "traceact>=0.14",
+    "traceact>=1.0,<2",
 ]
 
 [project.optional-dependencies]

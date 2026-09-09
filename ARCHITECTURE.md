@@ -204,7 +204,7 @@ what the quantum state does, not only what the final measurement looks like.
   The viewer's frontend is vanilla JavaScript with no framework, tested on
   Node's built-in runner.
 - **Core dependencies:** `numpy` (statevectors, linear algebra), `scipy`
-  (chi-square, KS), `traceact >=0.14` (trace recording, itself
+  (chi-square, KS), `traceact >=1.0` (trace recording, itself
   zero-runtime-dependency).
 - **Backends as optional extras:** `qiskit`, `pennylane`, `cirq`. Each
   registers through a public entry-point contract certified against a

@@ -11,9 +11,13 @@ Gate coverage: which gate positions a test suite runs, and which it checks.
 - `coverage.declare(circuit)` pins a circuit's full gate set as the run denominator without counting as execution, so `Run` coverage falls below 100% for gates a suite never reached: the classical-control-flow case. Circuits are keyed by an explicit `label=` on `qlens.run`, else the circuit's own name.
 - Structural measurement capture. `qlens.run` no longer refuses a circuit that measures; it records each measurement on `ExecutionResult.measurements` as a `Measurement(after, qubits)`, where `after` is the number of gates before it. Capture stays pure unitary evolution: the statevector runs on without collapsing, so a circuit that measures mid-way ends on the same state as one that doesn't. A measuring circuit still has no operator matrix, so `assert_unitary` and `assert_equivalent` refuse it as before. This is the structure a static lint pass reads (a gate following a measurement on the same qubit); `reset` and classical feed-forward stay unsupported.
 
+### Changed
+
+- Require `traceact>=1.0,<2`, its stable 1.x API line, up from `>=0.14`. The tracing adapter runs unchanged on 1.5.0; the upper cap guards against a future breaking major.
+
 ### Fixed
 
-- Type check under numpy's Python 3.11 stubs (2.4.x), which type `svd(compute_uv=False)` as `floating[Any]` rather than `float64`; the Schmidt-value helper now asserts the real dtype so the check passes on every supported numpy.
+- Type check under numpy's Python 3.11 stubs (2.4.x), which type `svd(compute_uv=False)` as `floating[Any]` rather than `float64`; the Schmidt-value helper now asserts the `float64` dtype so the check passes on every supported numpy.
 
 ## 0.7.0 — 2026-08-15
 
