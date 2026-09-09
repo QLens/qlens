@@ -41,7 +41,7 @@ _BUDGET_SLACK = 64
 # depends on how wide its bitstring key is: 256 outcomes of a 6-qubit run
 # serialize to about 2KB, the same 256 outcomes of a 12-qubit run to over
 # 10KB. Counting entries would keep the narrow case well inside the
-# budget and push the wide one past it, which is exactly the case a wide
+# budget and push the wide one past it, which is precisely the case a wide
 # expectation arrives in.
 #
 # Budgeted below 8192 so the estimate here never has to be exact to the
@@ -57,7 +57,7 @@ def _caller_location() -> str | None:
     standard library — the test that made the assertion.
 
     Returns None when there is no such frame. Skipping the standard
-    library matters: an assertion made from inside qlens itself would
+    library is deliberate: an assertion made from inside qlens itself would
     otherwise be attributed to whatever ran it, and ``<frozen runpy>:88``
     is worse than no source at all.
     """
@@ -153,7 +153,7 @@ def _expected_fields(expected: Mapping[str, float]) -> dict[str, Any]:
     )
     kept = _fit_to_budget(ranked)
     # Probabilities are against the original total, not the kept total, so
-    # a surviving bar keeps the height the check actually expected of it
+    # a surviving bar keeps the height the check expected of it
     # rather than being inflated to cover what was dropped.
     fields: dict[str, Any] = {"expected": dict(kept)}
     if len(kept) < len(expected):
@@ -173,7 +173,7 @@ def _fit_to_budget(ranked: list[tuple[str, float]]) -> list[tuple[str, float]]:
     disagree on some floats (``json.dumps(0.1)`` is longer than
     ``repr(0.1)``), so a slice the estimate calls safe can serialize a few
     hundred bytes over. Measured, not assumed: a 2000-case check found the
-    real payload up to ~300 bytes above the estimate. So the estimate
+    encoded payload up to ~300 bytes above the estimate. So the estimate
     picks a candidate quickly, and the loop drops entries until the actual
     encoded size fits.
     """

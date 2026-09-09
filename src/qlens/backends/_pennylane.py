@@ -72,7 +72,7 @@ class PennyLaneBackend(Backend):
                 continue
             ops.append(op)
         # Leading identities allocate every wire in canonical order before
-        # any real gate runs. Without them default.qubit tracks only the
+        # the circuit's own gates run. Without them default.qubit tracks only the
         # wires touched so far, so early snapshots would span a subsystem
         # in first-use order instead of the full space in canonical order.
         interleaved: list[Any] = [qml.Identity(w) for w in wires]

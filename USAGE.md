@@ -344,7 +344,7 @@ report.as_dict()           # the same figures as JSON-ready data
 
 ### Run coverage and control flow
 
-By default `Run` is 100%: the denominator is the gates the suite actually ran, so everything that ran is covered. It falls below 100% when you pin a reference circuit and the suite never reaches some of its gates. `declare` records a circuit's full gate set as the denominator without counting as execution:
+By default `Run` is 100%: the denominator is the gates the suite ran, so everything that ran is covered. It falls below 100% when you pin a reference circuit and the suite never reaches some of its gates. `declare` records a circuit's full gate set as the denominator without counting as execution:
 
 ```python
 with coverage.session() as cov:

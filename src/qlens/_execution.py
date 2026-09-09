@@ -1,4 +1,4 @@
-"""Execution result shapes.
+"""Execution result forms.
 
 These dataclasses are public API, shared by every backend. Field vocabulary
 (position, gate, qubits) matches the TraceAct event vocabulary planned for

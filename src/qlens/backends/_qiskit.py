@@ -28,7 +28,7 @@ from qlens._gates import normalize
 from qlens._stats import max_unitarity_deviation
 from qlens.backends.base import Backend
 
-# Instructions that carry no unitary and no state change worth snapshotting.
+# Instructions that carry no unitary and no state change to snapshot.
 _SKIPPED = frozenset({"barrier", "delay"})
 # Non-unitary instructions qlens.run refuses: they change the state in a way
 # pure statevector evolution can't follow. Measurement is handled apart from

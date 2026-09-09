@@ -2,7 +2,7 @@
 
 Canonical circuits with reference-computed expectations, public and
 importable. A backend implementation certifies by passing
-:func:`run_conformance`; Qlens's own backends certify through exactly
+:func:`run_conformance`; Qlens's own backends certify through precisely
 this path in their test suites.
 
 A third-party backend author supplies a ``build`` callable that

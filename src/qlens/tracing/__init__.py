@@ -33,7 +33,7 @@ __all__ = ["configure", "finish_traces", "settings"]
 
 # Floor for the per-trace event budget. TraceAct's package default (100)
 # is sized for classical app traces; circuit runs routinely produce
-# hundreds of layers, and the TraceAct viewer's own query limit sits at
+# hundreds of layers, and the TraceAct viewer's own query limit stays at
 # this order of magnitude. The adapter raises the budget further per run
 # whenever the circuit itself needs more.
 DEFAULT_MAX_EVENTS = 1000
@@ -110,7 +110,7 @@ def record_assertion(
         if run is None and len(settings._open_runs) == 1:
             # assert_unitary and assert_equivalent take a circuit, not a
             # result, so they carry no link to the run under test. With
-            # exactly one run open the attribution is unambiguous; with
+            # just one run open the attribution is unambiguous; with
             # several it would be a guess, so those go unattributed.
             run = settings._open_runs[0]
         if run is not None:

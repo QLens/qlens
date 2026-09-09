@@ -9,7 +9,7 @@ display resolution — magnitude and phase — which the frontend maps
 through its colour table without further arithmetic per pixel.
 
 Magnitude is quantized on a fourth-root scale rather than linearly.
-Amplitudes in a real circuit span several decades, and 256 linear levels
+Amplitudes in a typical circuit span several decades, and 256 linear levels
 put almost all of them in the bottom bucket; the fourth root spreads
 them across the range, and the frontend applies only a residual gamma.
 """
@@ -26,13 +26,13 @@ import numpy as np
 # Magnitude pre-warp applied before quantizing to 8 bits. Documented in
 # the payload as `mag_exponent` so the frontend never has to assume it.
 _MAG_EXPONENT = 0.25
-# Loading and unpacking a compressed sidecar costs real work, and the
+# Loading and unpacking a compressed sidecar costs nontrivial work, and the
 # frontend refetches whenever the collapse threshold moves. Two runs is
 # enough to cover the common flow (one open run, one being compared).
 _CACHE_LIMIT = 2
 _MAX_SEGMENTS = 24
 # Percentile of the magnitude field that maps to full brightness. High
-# enough that only genuinely dominant amplitudes clip, low enough that a
+# enough that only truly dominant amplitudes clip, low enough that a
 # single concentrated column cannot set the scale for the whole run.
 _NORMALIZE_PERCENTILE = 99.5
 # Largest plane one request may return, in cells. Two uint8 planes per
@@ -40,7 +40,7 @@ _NORMALIZE_PERCENTILE = 99.5
 # viewport is normally far below this; the cap exists so a wide run at
 # full extent cannot ask for a payload no browser will hold. Exceeding it
 # costs rows, never positions, and the payload says so rather than
-# quietly returning something coarser than was asked for.
+# silently returning something coarser than was asked for.
 DEFAULT_MAX_CELLS = 2_000_000
 
 
@@ -83,7 +83,7 @@ def load(path: Path) -> _Grid:
 
     Scrubbing the viewer asks for one position after another and the
     collapse control refetches the whole grid, so the decompression cost
-    is worth paying once per run rather than once per request.
+    is paid once per run rather than once per request.
     """
     key = (str(path), path.stat().st_mtime)
     with _cache_lock:
@@ -250,7 +250,7 @@ def build(
         "maximum": grid.maximum,
         "mag_exponent": _MAG_EXPONENT,
         "row_max": [float(v) for v in grid.row_max],
-        # The viewport actually served, which is not always the one asked
+        # The viewport served, which is not always the one asked
         # for. The client draws what came back rather than what it
         # requested, so a clamped range never puts the axes out of step
         # with the pixels.

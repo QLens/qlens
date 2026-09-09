@@ -2,12 +2,12 @@
 
 An empty viewer teaches nothing: the reading guide has no waterfall to
 point at, and there is no way to try the transport or the assertion
-markers before wiring up a real project. These runs fill that gap.
+markers before wiring up your own project. These runs fill that need.
 
-They are recorded through the ordinary path — real snapshots, real
-``qlens.run`` result objects, real ``assert_distribution`` calls, the
-same trace adapter and the same sidecar spooling — so what the viewer
-renders here is exactly what it renders for a user's own tests. The gate
+They are recorded through the ordinary path: the same snapshots, the same
+``qlens.run`` result objects, the same ``assert_distribution`` calls, the
+same trace adapter and the same sidecar spooling, so what the viewer
+renders here is precisely what it renders for a user's own tests. The gate
 programs execute on the bundled reference simulator rather than a
 provider, which is what keeps the demo working on a bare install with
 neither Qiskit nor PennyLane present.
@@ -72,7 +72,7 @@ def _layered_ansatz(num_qubits: int = 6, layers: int = 14) -> Program:
 def _sparse_subspace(num_qubits: int = 9, active: int = 4) -> Program:
     """Work inside a small subspace of a wide register.
 
-    Most real algorithms never touch most of their basis states, which is
+    Most nontrivial algorithms never touch most of their basis states, which is
     what the collapse control exists for: here 496 of 512 rows stay at
     zero throughout, and hiding them is the difference between a legible
     waterfall and a field of black.
@@ -161,7 +161,7 @@ def generate(directory: str | Path) -> tuple[str, str]:
     tracing.configure(state_dir=str(state_dir), project="qlens-demo")
 
     # Recorded oldest first: the viewer opens on the newest run, and the
-    # ansatz is the one worth landing on.
+    # ansatz is the one to settle on.
     _record_ghz(qlens, tracing)
     _record_sparse(qlens, tracing)
     _record_ansatz(qlens, tracing)
@@ -170,7 +170,7 @@ def generate(directory: str | Path) -> tuple[str, str]:
 
 def _record_ansatz(qlens: Any, tracing: Any) -> None:
     """A run whose assertions disagree: one written against the circuit's
-    real output passes, one written against a guess fails."""
+    correct output passes, one written against a guess fails."""
     result = _capture(_layered_ansatz(), num_qubits=6)
     result.traced_run = tracing.start_run(result, mode="layers")
     qlens.assert_distribution(

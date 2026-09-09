@@ -12,7 +12,7 @@ API:
     GET /api/circuit?trace_id=          one run: layers, gates, markers
     GET /api/state?trace_id=&position=  amplitudes at a captured position
     GET /api/waterfall?trace_id=        every position at display resolution
-    GET /api/stream                     SSE: new/updated runs as they land
+    GET /api/stream                     SSE: new/updated runs as they arrive
 """
 
 from __future__ import annotations

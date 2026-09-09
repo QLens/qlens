@@ -1,4 +1,4 @@
-"""First-party interpreters from the neutral gate vocabulary to real
+"""First-party interpreters from the neutral gate vocabulary to concrete
 framework circuits. A third-party backend author writes the equivalent of
 one of these functions for their framework and passes it to
 run_conformance.

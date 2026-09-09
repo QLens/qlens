@@ -2,8 +2,8 @@
 
 Backends are discovered exclusively through the ``qlens.backends``
 entry-point group — Qlens's own two register there via pyproject.toml,
-exactly as a third-party backend package would. Resolution is lazy:
-loading an entry point only happens when that backend is actually
+just as a third-party backend package would. Resolution is lazy:
+loading an entry point only happens when that backend is
 requested or matches a circuit, so installed-but-unused providers cost
 nothing.
 """
@@ -70,7 +70,7 @@ def detect_backend(circuit: object) -> Backend:
 
     Polls each registered backend's handles() classmethod. handles() is
     required not to import its provider, so probing every registered
-    backend is free; the winning backend is then actually loaded, which
+    backend is free; the winning backend is then loaded, which
     is the only point a missing provider package can surface.
     """
     for name, ep in sorted(_discovered().items()):

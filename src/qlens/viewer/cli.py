@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         from qlens.viewer._demo import generate
 
         # A fresh directory per launch, so the demo never accumulates
-        # runs across sessions or collides with a real trace file.
+        # runs across sessions or collides with an existing trace file.
         demo_dir = Path(tempfile.mkdtemp(prefix="qlens-demo-"))
         source, state_dir = generate(demo_dir)
         print(f"qlens: generated sample runs in {demo_dir}")

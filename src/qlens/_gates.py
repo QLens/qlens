@@ -20,7 +20,7 @@ from __future__ import annotations
 
 # Native spelling (lowercased) -> canonical name, grouped by canonical
 # name so a new framework's spelling is added next to its siblings. Every
-# entry is a spelling one of the supported frameworks actually emits;
+# entry is a spelling one of the supported frameworks emits;
 # nothing here is a guess at what some framework might call a gate. A
 # canonical name with no divergent spellings needs no entry, since an
 # unmapped name passes through unchanged.

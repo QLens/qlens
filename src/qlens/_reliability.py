@@ -5,7 +5,7 @@ usual chi-square p-value assumes every outcome is expected a handful of
 times; quantum output routinely concentrates on a few states and leaves
 the rest expected far less than once, and the p-value then swings by
 orders of magnitude on the sampling seed alone, in both directions. It
-both flakes and misses real errors.
+both flakes and misses true errors.
 
 Qlens never swaps the method out from under the caller when that
 happens. It reports the problem, names the alternatives, and leaves the
@@ -90,7 +90,7 @@ def tolerance_below_noise(tolerance: float, floor: float, shots: int) -> Reliabi
         reliable=False,
         code="tolerance_below_noise",
         summary=(
-            f"sampling {shots} shots lands about {floor:.4f} away from the expected "
+            f"sampling {shots} shots falls about {floor:.4f} away from the expected "
             f"distribution on its own, so a tolerance of {tolerance:.4f} rejects "
             "correct circuits most of the time."
         ),

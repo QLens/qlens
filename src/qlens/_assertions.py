@@ -298,8 +298,8 @@ def assert_separable(
     """Assert ``qubits`` carry no correlation with the rest of the register.
 
     A structural check: it asserts a property rather than a value, so it
-    needs no expected statevector. That matters for the case it exists
-    for — an ancilla that wasn't uncomputed. Mirroring a computation back
+    needs no expected statevector. The case it exists for is an ancilla
+    that wasn't uncomputed. Mirroring a computation back
     is what returns a scratch qubit to the rest of the circuit, and when
     the mirror is missing the ancilla stays entangled with the data. The
     interference the algorithm depends on is then destroyed, and the only
@@ -307,7 +307,7 @@ def assert_separable(
     to a coin flip.
 
     Measured as the purity of the subsystem after tracing out the rest.
-    Exactly 1 is a product state; below 1 is entanglement.
+    A value of 1 is a product state; below 1 is entanglement.
 
     ``at`` picks the gate position to check, defaulting to the end of the
     run, and is where the viewer marks the assertion. Checking an ancilla
@@ -323,7 +323,7 @@ def assert_separable(
         failure = (
             f"{names} still entangled with the rest of the register: purity "
             f"{purity:.6f} < 1 (tolerance {atol:g}). An ancilla that was not "
-            f"uncomputed leaves exactly this trace"
+            f"uncomputed leaves precisely this trace"
         )
     _finish(
         result, "assert_separable", "state", failure,

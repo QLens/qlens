@@ -12,13 +12,13 @@ leftmost in a bitstring, and no reordering happens at this boundary. See
 CONVENTIONS.md.
 
 Qubit count follows Cirq's own model rather than a declared register: a
-circuit has exactly the qubits its operations touch. ``cirq.LineQubit(0)``
+circuit has precisely the qubits its operations touch. ``cirq.LineQubit(0)``
 and ``cirq.LineQubit(5)`` make a two-qubit circuit in Cirq, and Qlens
 reports two qubits for it. A qubit that should occupy an axis without
 being acted on needs an explicit ``cirq.I``, which is Cirq's own idiom for
 saying so.
 
-Gate parameters record what the gate actually carries. Rotation gates
+Gate parameters record what the gate carries. Rotation gates
 report their angle in radians, matching the other backends; any other
 gate with an exponent away from 1 reports that exponent, since in Cirq
 that is where a partial gate keeps its magnitude.
@@ -136,7 +136,7 @@ class CirqBackend(Backend):
         bound = self._bind(circuit, args)
         qubits = self._qubit_list(bound)
         # Checked per operation rather than through cirq.has_unitary on the
-        # circuit, which accepts a trailing measurement and quietly drops
+        # circuit, which accepts a trailing measurement and silently drops
         # it. A circuit that measures has no operator matrix here, the same
         # answer the other backends give.
         if any(not cirq.has_unitary(operation) for operation in bound.all_operations()):

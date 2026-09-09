@@ -1,7 +1,7 @@
 """Statistical tests and linear-algebra helpers shared across backends.
 
 Everything here is framework-neutral: plain numpy/scipy over canonical
-Qlens shapes (big-endian counts dicts, big-endian matrices).
+Qlens forms (big-endian counts dicts, big-endian matrices).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ def phase_invariant_allclose(
     """Whether two matrices are equal up to a global complex phase.
 
     Aligns the phases using the largest-magnitude entry of ``a`` (robust
-    against zero entries), then compares elementwise. Shapes must match.
+    against zero entries), then compares elementwise. Dimensions must match.
     """
     if a.shape != b.shape:
         return False
@@ -74,7 +74,7 @@ def chi_square_test(
     keep = probabilities > 0.0
     observed, probabilities = observed[keep], probabilities[keep]
     if len(observed) == 1:
-        # Single possible outcome and all counts landed on it.
+        # Single possible outcome and all counts fell on it.
         return 0.0, 1.0
     result = stats.chisquare(f_obs=observed, f_exp=probabilities * total_shots)
     return float(result.statistic), float(result.pvalue)
@@ -181,7 +181,7 @@ def chi_square_exact_test(
     simulated = rng.multinomial(total, probabilities, size=resamples).astype(np.float64)
     null = _chi_square_statistic(simulated, expected_counts)
     # The observed table counts as one of its own reference draws, which
-    # keeps the p-value from ever being reported as exactly zero.
+    # keeps the p-value from ever being reported as precisely zero.
     pvalue = float((np.count_nonzero(null >= statistic) + 1) / (resamples + 1))
     return statistic, pvalue
 
@@ -211,9 +211,9 @@ def tvd_noise_floor(
     """How large a TVD sampling alone produces, at this shot count.
 
     Finite sampling never reproduces a distribution perfectly, so even a
-    correct circuit lands some distance from its expectation. A tolerance
+    correct circuit falls some distance from its expectation. A tolerance
     below this floor rejects correct circuits most of the time, which is
-    what makes it worth reporting alongside the measured distance.
+    what makes it useful to report alongside the measured distance.
     """
     norm = sum(expected.values())
     if norm <= 0:
@@ -286,7 +286,7 @@ def schmidt_coefficients(
     matrix = np.transpose(tensor, [*ordered, *rest]).reshape(
         2 ** len(ordered), 2 ** len(rest)
     )
-    # svd(compute_uv=False) returns real singular values; assert the dtype
+    # svd(compute_uv=False) returns nonnegative singular values; assert the dtype
     # so the annotation holds across numpy stub versions, some of which
     # type this as floating[Any] rather than float64.
     return np.asarray(np.linalg.svd(matrix, compute_uv=False), dtype=np.float64)
@@ -299,7 +299,7 @@ def subsystem_purity(
 
     The eigenvalues of the reduced density matrix are the squared Schmidt
     coefficients, so this is their sum of squares and needs no density
-    matrix built. Exactly 1 means a product state; anything less means the
+    matrix built. A value of 1 means a product state; anything less means the
     subsystem is entangled with the rest, and the further below 1, the
     more entangled it is.
 
