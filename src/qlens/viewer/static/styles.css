@@ -368,6 +368,41 @@ canvas { display: block }
   border-radius: var(--radius-2); padding: var(--space-2) var(--space-4);
   color: var(--accent-9); display: inline-block;
 }
+
+/* The no-runs view fills the void with a faint instrument grid and a
+   soft phosphor bloom, so a viewer with nothing recorded yet reads as a
+   powered screen waiting for signal rather than a blank panel. */
+.empty {
+  flex: 1; margin: calc(var(--space-8) * -1);
+  position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.empty::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(oklch(32% 0.014 258 / 0.5) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(32% 0.014 258 / 0.5) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(ellipse 65% 65% at 50% 44%, oklch(0% 0 0) 12%, transparent 72%);
+  mask-image: radial-gradient(ellipse 65% 65% at 50% 44%, oklch(0% 0 0) 12%, transparent 72%);
+}
+.empty::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 42% 46% at 50% 42%, oklch(78% 0.17 175 / 0.09), transparent 68%);
+}
+
+.placeholder-hero {
+  position: relative; z-index: 1; margin: 0; max-width: 520px;
+  padding: var(--space-10) var(--space-10) var(--space-9);
+  background: oklch(16% 0.010 258 / 0.72);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-4);
+  box-shadow: var(--shadow-panel); backdrop-filter: blur(3px);
+}
+
+/* A soft halo behind the mark, so the Q reads as the lit element. */
+.empty-mark { display: grid; place-items: center; margin-bottom: var(--space-2) }
+.empty-mark svg { filter: drop-shadow(0 0 10px oklch(78% 0.17 175 / 0.45)) }
+
 .banner {
   font-family: var(--font-mono); font-size: var(--text-xs);
   padding: var(--space-5) var(--space-7); border-radius: var(--radius-3);

@@ -2126,15 +2126,17 @@ function resetNotices() {
 }
 
 function emptyState() {
-  return h('div', { class: 'placeholder' },
-    phaseQ(56, 45),
-    h('h2', {}, 'Waiting for a circuit run'),
-    h('p', {},
-      "Record one against this trace source and it'll appear here live, "
-      + 'with the whole execution laid out gate by gate.'),
-    h('code', {}, 'qlens.run(circuit, trace=True)'),
-    h('p', { class: 'dim' }, "Or open the viewer on sample runs if you'd rather try it first:"),
-    h('code', {}, 'qlens view --demo'),
+  return h('div', { class: 'empty' },
+    h('div', { class: 'placeholder placeholder-hero' },
+      h('div', { class: 'empty-mark' }, phaseQ(64, 45)),
+      h('h2', {}, 'Waiting for a circuit run'),
+      h('p', {},
+        "Record one against this trace source and it'll appear here live, "
+        + 'with the whole execution laid out gate by gate.'),
+      h('code', {}, 'qlens.run(circuit, trace=True)'),
+      h('p', { class: 'dim' }, "Or open the viewer on sample runs if you'd rather try it first:"),
+      h('code', {}, 'qlens view --demo'),
+    ),
   );
 }
 
