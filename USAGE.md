@@ -428,7 +428,7 @@ Running a parameterized circuit without `args` raises `UnsupportedCircuitError`.
 | Error | Raised when |
 |---|---|
 | `QlensAssertionError` | An `assert_*` check failed. Also an `AssertionError`. |
-| `UnsupportedCircuitError` | The circuit contains an instruction the operation can't handle (mid-circuit measurement, reset, unbound parameters). |
+| `UnsupportedCircuitError` | The operation can't handle the circuit: `reset` or classical feed-forward, unbound parameters, or a measurement passed to `assert_unitary` / `assert_equivalent` (which need an operator matrix). `run` records measurement rather than refusing it. |
 | `BackendNotFoundError` | No registered backend matches the requested name or circuit object. |
 | `BackendNotInstalledError` | The backend exists but its framework package isn't installed; the message carries the pip command. |
 | `QlensError` | Base class of all of the above, plus argument-validation errors. |
